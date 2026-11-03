@@ -79,6 +79,17 @@ button:focus-visible, .res:focus-visible { outline: 2px solid var(--accent); out
 .page [data-act]:hover > .hit, .page [data-act].on > .hit { fill: rgba(227, 0, 22, .07) }
 .page [data-act="upload"]:hover .upl, .page [data-act="addpiece"]:hover .upl { fill: #fdecee }
 /* modo editor */
+body.editing .doc { gap: 64px; padding-top: 64px }
+.laybar { position: absolute; bottom: calc(100% + 6px); right: 0; display: flex; gap: 4px; align-items: center; background: var(--paper); border: 1px solid var(--line); border-radius: 10px; padding: 4px 6px; box-shadow: 0 4px 18px rgba(0,0,0,.12); z-index: 2 }
+.laybar span { font-size: .72rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); padding: 0 4px }
+.laybar .lb { border: 1.5px solid transparent; background: none; border-radius: 7px; padding: 2px; cursor: pointer; line-height: 0 }
+.laybar .lb.auto { line-height: 1; font-size: .78rem; font-weight: 700; padding: 6px 8px; color: var(--muted) }
+.laybar .lb:hover { border-color: var(--line) } .laybar .lb.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent) } .laybar .lb.auto.on { color: var(--accent) }
+.laybar .lb:disabled { opacity: .3; cursor: not-allowed }
+.laybar .tb-p { fill: #e8ecf3; stroke: #1f4fa3; stroke-width: .8 } .laybar .on .tb-p { fill: #fde5e8; stroke: #e30016 } .laybar .tb-c { fill: #f2f2f2; stroke: #aab; stroke-width: .6; stroke-dasharray: 1.5 1 }
+.page .mv { cursor: grab; touch-action: none } .page .mv:hover rect { fill: #e8eef9 }
+.page .droptarget { fill: rgba(31,79,163,.10) !important; stroke: #1f4fa3; stroke-width: .6; stroke-dasharray: 2 1.2 }
+.ghost { position: fixed; z-index: 50; pointer-events: none; background: #1f4fa3; color: #fff; font-weight: 700; font-size: .85rem; padding: 6px 10px; border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.25); transform: translate(12px, 12px) }
 .page .div .dz { fill: transparent } .page .div line { stroke: #1f4fa3; stroke-width: 0.35; stroke-dasharray: 1.2 1 } .page .div .grip { fill: #1f4fa3 }
 .page .div.v { cursor: col-resize } .page .div.h { cursor: row-resize } .page .div { touch-action: none }
 .page .div:hover .dz, .page .div.act .dz { fill: rgba(31,79,163,.14) } .page .div:hover line, .page .div.act line { stroke-dasharray: none; stroke-width: 0.5 }
@@ -157,7 +168,7 @@ body.editing .page [data-act="draw"] { cursor: default }
 <div class="docwrap" id="docwrap"><main class="doc" id="doc"><div class="page"><div class="loading">Cargando catálogo…</div></div></main></div>
 <input type="file" id="fileIn" accept=".dwg,.dxf" hidden>
 <div class="toast" id="toast" hidden></div>
-<div class="edbar" id="edbar" hidden><span><b>Modo editor</b> · Arrastrá un contorno afuera para separarlo · Arrastrá las líneas azules para cambiar el tamaño (doble clic: automático)</span>
+<div class="edbar" id="edbar" hidden><span><b>Modo editor</b> · Elegí la <b>distribución</b> arriba de cada hoja · Arrastrá <b>Mover</b> sobre otro recuadro para intercambiarlos · Arrastrá un contorno afuera para separarlo</span>
 <button class="tb" id="btnEdOff" type="button">Listo</button></div>
 
 <script>
@@ -169,7 +180,6 @@ const LOGO = " <path d=\" M748.1,608.9 C748.0,608.8 747.9,608.6 747.8,608.5 C747
 const NS = 'http://www.w3.org/2000/svg';
 const PW = 297, PH = 210, M = 10, TB = 24, HB = 14, G = 4;
 const AX = M + G, AY = M + G, AW = PW - 2 * M - 2 * G, AH = PH - M - TB - G - AY - 4; // 4 mm para el pie de página
-const CAMB = { w: 92, h: 62 };
 const RED = '#e30016', INK = '#141414', DIM = '#1f4fa3', GRAY = '#f2f2f2', MUT = '#666b72';
 const FONT = 'Barlow, Helvetica, Arial, sans-serif';
 const CDN = 'https://cdn.jsdelivr.net/npm/@mlightcad/libredwg-web@0.8.0/';
@@ -202,58 +212,83 @@ function bboxOf(g) {
 }
 function partSize(p) { const b = p.bbox; return { W: b[2] - b[0], H: b[3] - b[1] }; }
 
-/* ------------------------------------------------------------ armado de hojas */
+/* ------------------------------------------------------------ armado de hojas
+   Cada hoja: a la derecha, el recuadro fijo de CAMBIOS + NOTAS (siempre igual);
+   a la izquierda, las piezas en una distribución definida (columnas, filas, una grande + chicas, cuadrícula). */
+const PANEL_W = 72;
+const PA = { x: AX, y: AY, w: AW - PANEL_W - G, h: AH };
+const SCALES = [1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10, 15, 20, 30, 40];
+const TPLS = { 1: ['full'], 2: ['cols', 'rows'], 3: ['bigL', 'bigT', 'cols', 'rows'], 4: ['grid', 'bigL', 'bigT', 'cols', 'rows'], 5: ['grid', 'cols', 'rows'], 6: ['grid', 'cols', 'rows'] };
+const TPL_NAME = { full: 'Una sola', cols: 'Lado a lado', rows: 'Una arriba de otra', bigL: 'Grande a la izquierda', bigT: 'Grande arriba', grid: 'Cuadrícula' };
 function cellSize(p, sc) {
-  const { W, H } = partSize(p); let w = Math.max(W / sc + 20, 84), h = H / sc + 8 + HB + 12;
-  const cj = p.geom && p.geom.caja; // tamaño que el usuario le dio al recuadro (modo editor)
-  if (cj) { w = Math.min(AW - CAMB.w - G, Math.max(w, cj[0])); h = Math.min(AH, Math.max(h, cj[1])); }
-  return { w, h };
+  const { W, H } = partSize(p);
+  return { w: Math.max(W / sc + 18, 58), h: Math.max(H / sc + 8 + HB + 11, 46) };
 }
-function packCols(items) {
-  const cols = [];
-  for (const it of items) {
-    const c = cols[cols.length - 1];
-    if (c && c.h + G + it.h <= AH) { c.items.push(it); c.h += G + it.h; c.w = Math.max(c.w, it.w); }
-    else { if (it.h > AH) return null; cols.push({ items: [it], w: it.w, h: it.h }); }
-  }
-  const cam = { camb: true, w: CAMB.w, h: CAMB.h };
-  const host = cols.find(c => AH - c.h - G >= cam.h);
-  if (host) { host.items.push(cam); host.h += G + cam.h; host.w = Math.max(host.w, cam.w); }
-  else cols.push({ items: [cam], w: cam.w, h: cam.h });
-  const tot = cols.reduce((a, c) => a + c.w, 0) + G * (cols.length - 1);
-  return tot <= AW ? cols : null;
+function share(total, needs) {
+  const n = needs.length, avail = total - G * (n - 1), sum = needs.reduce((a, b) => a + b, 0);
+  if (sum > avail + 0.01) return null;
+  return needs.map(v => v + (avail - sum) * v / sum);
 }
-function buildLayout(piezas, ovs) {
-  if (!piezas.length) return { sc: 3, sheets: [] };
-  let sc = 3;
-  for (const cand of [3, 4, 5, 6, 8, 10, 15, 20, 30]) { sc = cand; if (piezas.every(p => packCols([{ p, ...cellSize(p, cand) }]))) break; }
-  const sheets = []; let cur = [];
+function tplBoxes(tpl, ns, A) {
+  const { x, y, w, h } = A, out = [];
+  if (tpl === 'full') return ns[0].w <= w && ns[0].h <= h ? [{ x, y, w, h }] : null;
+  if (tpl === 'cols') { if (ns.some(n => n.h > h)) return null; const ws = share(w, ns.map(n => n.w)); if (!ws) return null; let cx = x; ws.forEach(ww => { out.push({ x: cx, y, w: ww, h }); cx += ww + G; }); return out; }
+  if (tpl === 'rows') { if (ns.some(n => n.w > w)) return null; const hs = share(h, ns.map(n => n.h)); if (!hs) return null; let cy = y; hs.forEach(hh => { out.push({ x, y: cy, w, h: hh }); cy += hh + G; }); return out; }
+  if (tpl === 'bigL') { const r = ns.slice(1); const ws = share(w, [ns[0].w, Math.max(...r.map(n => n.w))]); const hs = share(h, r.map(n => n.h)); if (!ws || !hs || ns[0].h > h) return null;
+    out.push({ x, y, w: ws[0], h }); let cy = y; hs.forEach(hh => { out.push({ x: x + ws[0] + G, y: cy, w: ws[1], h: hh }); cy += hh + G; }); return out; }
+  if (tpl === 'bigT') { const r = ns.slice(1); const hs = share(h, [ns[0].h, Math.max(...r.map(n => n.h))]); const ws = share(w, r.map(n => n.w)); if (!ws || !hs || ns[0].w > w) return null;
+    out.push({ x, y, w, h: hs[0] }); let cx = x; ws.forEach(ww => { out.push({ x: cx, y: y + hs[0] + G, w: ww, h: hs[1] }); cx += ww + G; }); return out; }
+  if (tpl === 'grid') { const c = ns.length <= 4 ? 2 : 3, rows = []; for (let i = 0; i < ns.length; i += c) rows.push(ns.slice(i, i + c));
+    const rh = share(h, rows.map(rw => Math.max(...rw.map(n => n.h)))); if (!rh) return null; let cy = y;
+    for (let i = 0; i < rows.length; i++) { const ws = share(w, rows[i].map(n => n.w)); if (!ws) return null; let cx = x; ws.forEach(ww => { out.push({ x: cx, y: cy, w: ww, h: rh[i] }); cx += ww + G; }); cy += rh[i] + G; }
+    return out; }
+  return null;
+}
+/* prueba una distribución: devuelve las cajas en el orden de las piezas y un puntaje (más alto = dibujos más grandes y parejos) */
+function tryTpl(tpl, items) {
+  const ns = items.map(i => ({ w: i.w, h: i.h }));
+  let order = items.map((_, i) => i);
+  if (tpl === 'bigL' || tpl === 'bigT') { const big = ns.reduce((bi, n, i) => n.w * n.h > ns[bi].w * ns[bi].h ? i : bi, 0); order = [big, ...order.filter(i => i !== big)]; }
+  const boxes = tplBoxes(tpl, order.map(i => ns[i]), PA); if (!boxes) return null;
+  const byItem = []; order.forEach((ii, k) => byItem[ii] = boxes[k]);
+  const fits = byItem.map((b, i) => Math.min(b.w / ns[i].w, b.h / ns[i].h));
+  const min = Math.min(...fits), avg = fits.reduce((a, b) => a + b, 0) / fits.length;
+  return { tpl, boxes: byItem, score: min * 10 + avg };
+}
+function bestTpl(items, want) {
+  const opts = (TPLS[Math.min(items.length, 6)] || ['grid']).map(t => tryTpl(t, items)).filter(Boolean);
+  if (!opts.length) return null;
+  const chosen = (want && opts.find(o => o.tpl === want)) || opts.reduce((a, b) => b.score > a.score ? b : a);
+  return { ...chosen, options: opts.map(o => o.tpl) };
+}
+function groupAt(piezas, sc) {
+  if (piezas.some(p => { const c = cellSize(p, sc); return c.w > PA.w || c.h > PA.h; })) return null;
+  const groups = []; let cur = [];
   for (const p of piezas) {
     const it = { p, ...cellSize(p, sc) };
-    if (packCols([...cur, it])) cur.push(it); else { sheets.push(cur); cur = [it]; }
+    if (cur.length < 6 && bestTpl([...cur, it])) cur.push(it); else { if (cur.length) groups.push(cur); cur = [it]; }
   }
-  if (cur.length) sheets.push(cur);
-  return { sc, sheets: sheets.map((items, si) => arrange(packCols(items), ovs && ovs[si])) };
+  if (cur.length) groups.push(cur);
+  return groups;
 }
-/* reparte la hoja: proporcional al tamaño de cada pieza, o según lo que el usuario ajustó en el modo editor (ov) */
-function arrange(cols, ov) {
-  const n = cols.length, availW = AW - G * (n - 1);
-  const sig = cols.map(c => c.items.length).join(',');
-  const use = ov && ov.sig === sig && ov.cw && ov.cw.length === n;
-  const sumW = cols.reduce((a, c) => a + c.w, 0);
-  const ws = use ? ov.cw.map(f => f * availW) : cols.map(c => c.w + (availW - sumW) * c.w / sumW);
-  const hs = cols.map((c, ci) => {
-    const m = c.items.length, availH = AH - G * (m - 1), sumH = c.items.reduce((a, i) => a + i.h, 0);
-    return use && ov.ch && ov.ch[ci] && ov.ch[ci].length === m ? ov.ch[ci].map(f => f * availH) : c.items.map(i => i.h + (availH - sumH) * i.h / sumH);
-  });
-  let x = AX; const cells = [];
-  cols.forEach((c, ci) => {
-    let y = AY;
-    c.items.forEach((i, ri) => { cells.push({ ...i, bw: i.w, bh: i.h, x, y, w: ws[ci], h: hs[ci][ri], ci, ri }); y += hs[ci][ri] + G; });
-    x += ws[ci] + G;
-  });
-  cells.meta = { ws, hs, sig, mins: cols.map(c => ({ w: Math.max(...c.items.map(i => i.camb ? 60 : i.w)), h: c.items.map(i => i.camb ? 44 : i.h) })) };
-  return cells;
+/* Escala única por enganche (todas las piezas a la misma escala, coherente).
+   Se usa la más grande que se pueda leer (la más chica numéricamente) sin gastar hojas de más:
+   si achicando un poco entran en menos hojas, se achica (hasta 1:10 como mucho). */
+function buildLayout(piezas, ovs) {
+  if (!piezas.length) return { sc: 3, sheets: [] };
+  const tries = SCALES.filter(s => s >= 3).map(sc => ({ sc, g: groupAt(piezas, sc) })).filter(t => t.g);
+  const first = tries[0] || { sc: SCALES[SCALES.length - 1], g: piezas.map(p => [{ p, ...cellSize(p, 40) }]) };
+  const near = tries.filter(t => t.sc <= Math.max(10, first.sc * 2.5));
+  const minS = Math.min(...near.map(t => t.g.length));
+  const pick = near.find(t => t.g.length <= minS) || first;
+  const { sc, g: groups } = pick;
+  return { sc, sheets: groups.map((items, si) => {
+    const b = bestTpl(items, ovs && ovs[si] && ovs[si].tpl) || { tpl: 'full', boxes: items.map(() => ({ ...PA })), options: [] };
+    const cells = items.map((it, i) => ({ ...it, ...b.boxes[i] }));
+    cells.push({ camb: true, x: PA.x + PA.w + G, y: AY, w: PANEL_W, h: AH });
+    cells.meta = { tpl: b.tpl, options: b.options, n: items.length };
+    return cells;
+  }) };
 }
 
 /* ------------------------------------------------------------ dibujo SVG */
@@ -303,7 +338,7 @@ function pieceCell(ctx, c, sc, forPdf) {
   const bw1 = 12, bw2 = 18.5, bh = 6.4, xr = x + w - 3, x2 = xr - bw2, x1 = x2 - 1.8 - bw1, yb = y + 3.8;
   const nameW = x1 - x - 5, nSize = fitSize(p.nombre || '—', 3.5, nameW, 0.55);
   const nm = T(x + 3, y + 6.6, p.nombre || '—', nSize, { w: 700 });
-  const codeTxt = clip(p.codigo || '', 2.2, nameW - 22);
+  const chipIn = nameW < 48, codeTxt = clip(p.codigo || '', 2.2, chipIn ? nameW : nameW - 22);
   const cd = T(x + 3, y + 10.6, codeTxt || 'Sin código', 2.2, { c: codeTxt ? '#777' : '#aaa' });
   const bc = p.cant ? `<rect x="${x1.toFixed(2)}" y="${yb}" width="${bw1}" height="${bh}" rx="1.2" fill="${RED}"/>` + T(x1 + bw1 / 2, yb + 4.75, p.cant, fitSize(p.cant, 4.2, bw1 - 1.5, 0.6), { a: 'middle', c: '#fff', w: 700 })
     : `<rect x="${(x1 + 0.2).toFixed(2)}" y="${yb + 0.2}" width="${bw1 - 0.4}" height="${bh - 0.4}" rx="1.2" fill="#fff" stroke="${RED}" stroke-width="0.35" stroke-dasharray="0.9 0.6"/>` + T(x1 + bw1 / 2, yb + 4.2, 'Cant.', 2.4, { a: 'middle', c: RED, w: 700 });
@@ -313,7 +348,7 @@ function pieceCell(ctx, c, sc, forPdf) {
   else {
     const nmW = Math.min(nameW, String(p.nombre || '—').length * nSize * 0.58 + 2);
     const cdW = Math.max(14, (codeTxt || 'Sin código').length * 2.2 * 0.5 + 2);
-    const ux = x + 3 + cdW + 1.5, uy = y + 8.0;
+    const ux = chipIn ? x + 2.5 : x + 3 + cdW + 1.5, uy = chipIn ? y + HB + 1.9 : y + 8.0;
     o.push(`<g data-act="q" data-what="pnombre" data-key="${pid}">${hit(x + 2, y + 2.2, nmW, 5.6)}${nm}</g>`,
       `<g data-act="q" data-what="pcodigo" data-key="${pid}">${hit(x + 2, y + 8.3, cdW, 3.4)}${cd}</g>`,
       `<g data-act="upload" data-key="${pid}"><rect class="upl" x="${ux}" y="${uy}" width="17.5" height="4" rx="2" fill="#fff" stroke="#c5c8cd" stroke-width="0.22"/>
@@ -329,6 +364,9 @@ function pieceCell(ctx, c, sc, forPdf) {
     const comps = components(p.geom || {});
     comps.forEach((cg, i) => { const vis = geomSvg(cg, P, k);
       o.push(`<g class="comp" data-act="comp" data-key="${pid}" data-ci="${i}">${vis}${vis.replace('stroke="#141414" stroke-width="0.45"', 'stroke="transparent" stroke-width="3.2"')}</g>`); });
+    const mvx = chipIn ? 21.5 : 2.5;
+    o.push(`<g class="mv" data-act="move" data-key="${pid}"><rect x="${x + mvx}" y="${y + HB + 1.6}" width="17" height="4.6" rx="2.3" fill="#fff" stroke="#9fb3d6" stroke-width="0.25"/>
+      ${[0, 1, 2].map(r => [0, 1].map(cc => `<circle cx="${x + mvx + 2.5 + cc * 1.3}" cy="${y + HB + 2.75 + r * 1.15}" r="0.38" fill="#1f4fa3"/>`).join('')).join('')}${T(x + mvx + 5.7, y + HB + 4.8, 'Mover', 2.3, { c: '#1f4fa3', w: 700 })}</g>`);
     o.push(`<g class="xdel" data-act="delpiece" data-key="${pid}"><circle cx="${x + w - 3.5}" cy="${y + HB + 3.5}" r="2.3" fill="#fff" stroke="#c5c8cd" stroke-width="0.25"/><path d="M${x + w - 4.4} ${y + HB + 2.6} l1.8 1.8 m0 -1.8 l-1.8 1.8" stroke="#666" stroke-width="0.35" stroke-linecap="round"/></g>`);
   } else o.push(`<g pointer-events="none">${geomSvg(p.geom || {}, P, k)}</g>`);
   if ((p.geom || {}).multi) o.push(T(x + 3, ay + 4.6, 'Varias piezas en este archivo · sin cotas generales', 2.3, { c: '#777' }));
@@ -401,18 +439,6 @@ function sheetSvg(pg, forPdf) {
   const keys = cells.filter(c => c.p).map(c => c.p.id);
   const o = [`<rect width="${PW}" height="${PH}" fill="#fff"/>`, `<rect x="${M}" y="${M}" width="${PW - 2 * M}" height="${PH - 2 * M - 4}" fill="none" stroke="${INK}" stroke-width="0.5"/>`];
   cells.forEach(c => o.push(c.camb ? cambiosCell(ctx, c, keys, forPdf, n) : pieceCell(ctx, c, L.sc, forPdf)));
-  if (S.editor && !forPdf && cells.meta) {
-    const { ws, hs } = cells.meta; let x = AX;
-    ws.forEach((w, ci) => {
-      const colCells = cells.filter(c => c.ci === ci);
-      colCells.slice(0, -1).forEach(c => { const yy = c.y + c.h + G / 2;
-        o.push(`<g class="div h" data-act="divh" data-s="${pg.s}" data-c="${ci}" data-i="${c.ri}"><rect class="dz" x="${c.x}" y="${yy - 2}" width="${c.w}" height="4"/><line x1="${c.x + 4}" y1="${yy}" x2="${c.x + c.w - 4}" y2="${yy}"/><rect class="grip" x="${c.x + c.w / 2 - 8}" y="${yy - 1.3}" width="16" height="2.6" rx="1.3"/></g>`); });
-      if (ci < ws.length - 1) { const xx = x + w + G / 2;
-        o.push(`<g class="div v" data-act="divv" data-s="${pg.s}" data-c="${ci}"><rect class="dz" x="${xx - 2}" y="${AY}" width="4" height="${AH}"/><line x1="${xx}" y1="${AY + 4}" x2="${xx}" y2="${AY + AH - 4}"/><rect class="grip" x="${xx - 1.3}" y="${AY + AH / 2 - 8}" width="2.6" height="16" rx="1.3"/></g>`); }
-      x += w + G;
-    });
-    cells.filter(c => !c.camb).forEach(c => o.push(T(c.x + c.w - 3, c.y + c.h - 2, `${Math.round(c.w)} × ${Math.round(c.h)} mm`, 2.2, { a: 'end', c: '#1f4fa3', w: 600 })));
-  }
   const ty = PH - M - TB - 4;
   o.push(`<rect x="${M}" y="${ty}" width="${PW - 2 * M}" height="${TB}" fill="#fff"/>`);
   o.push(`<line x1="${M}" y1="${ty}" x2="${PW - M}" y2="${ty}" stroke="${INK}" stroke-width="0.5"/>`);
@@ -514,7 +540,31 @@ function mountDoc() {
   root.querySelectorAll('.page').forEach(el => { IO.observe(el); IOcur.observe(el); });
   $('pgNow').textContent = `Página ${prevNo} / ${S.pages.length}`;
 }
-function renderPage(el) { const pg = S.pages[+el.dataset.no - 1]; if (!pg) return; el.innerHTML = pageSvg(pg, false); el.dataset.r = '1'; }
+function tplThumb(tpl, n) {
+  const A = { x: 0, y: 0, w: 30, h: 26 }, ns = Array.from({ length: n }, () => ({ w: 1, h: 1 }));
+  const save = { G };
+  const bx = (function () { const g0 = 1.6; const sh = (t, nd) => { const av = t - g0 * (nd.length - 1), su = nd.reduce((a, b) => a + b, 0); return nd.map(v => v * av / su); };
+    const out = [], { x, y, w, h } = A;
+    if (tpl === 'full') return [{ x, y, w, h }];
+    if (tpl === 'cols') { let cx = x; sh(w, ns.map(() => 1)).forEach(ww => { out.push({ x: cx, y, w: ww, h }); cx += ww + g0; }); return out; }
+    if (tpl === 'rows') { let cy = y; sh(h, ns.map(() => 1)).forEach(hh => { out.push({ x, y: cy, w, h: hh }); cy += hh + g0; }); return out; }
+    if (tpl === 'bigL') { const ws = sh(w, [1.6, 1]); out.push({ x, y, w: ws[0], h }); let cy = y; sh(h, ns.slice(1).map(() => 1)).forEach(hh => { out.push({ x: x + ws[0] + g0, y: cy, w: ws[1], h: hh }); cy += hh + g0; }); return out; }
+    if (tpl === 'bigT') { const hs = sh(h, [1.4, 1]); out.push({ x, y, w, h: hs[0] }); let cx = x; sh(w, ns.slice(1).map(() => 1)).forEach(ww => { out.push({ x: cx, y: y + hs[0] + g0, w: ww, h: hs[1] }); cx += ww + g0; }); return out; }
+    const c = n <= 4 ? 2 : 3, r = Math.ceil(n / c); let cy = y, k = 0;
+    sh(h, Array.from({ length: r }, () => 1)).forEach(hh => { const m = Math.min(c, n - k); let cx = x; sh(w, Array.from({ length: m }, () => 1)).forEach(ww => { out.push({ x: cx, y: cy, w: ww, h: hh }); cx += ww + g0; k++; }); cy += hh + g0; });
+    return out; })();
+  return `<svg viewBox="-1 -1 44 28" width="44" height="28" aria-hidden="true">${bx.map(b => `<rect x="${b.x.toFixed(1)}" y="${b.y.toFixed(1)}" width="${b.w.toFixed(1)}" height="${b.h.toFixed(1)}" rx="1" class="tb-p"/>`).join('')}<rect x="32" y="0" width="10" height="26" rx="1" class="tb-c"/></svg>`;
+}
+function layBar(pg) {
+  const ctx = S.C[pg.conj], cells = ctx.layout.sheets[pg.s], m = cells && cells.meta; if (!m) return '';
+  const saved = (((ctx.conj.notas || {})._lay || {})[pg.s] || {}).tpl;
+  const all = TPLS[Math.min(m.n, 6)] || ['grid'];
+  return `<div class="laybar" role="toolbar" aria-label="Distribución de la hoja"><span>Distribución</span>${all.map(t => {
+    const okT = m.options.includes(t);
+    return `<button type="button" class="lb${t === m.tpl ? ' on' : ''}" data-act="tpl" data-tpl="${t}" data-s="${pg.s}" title="${TPL_NAME[t]}${okT ? '' : ' (no entran las piezas)'}"${okT ? '' : ' disabled'}>${tplThumb(t, m.n)}</button>`;
+  }).join('')}<button type="button" class="lb auto${saved ? '' : ' on'}" data-act="tpl" data-tpl="" data-s="${pg.s}" title="Elegir automáticamente">Auto</button></div>`;
+}
+function renderPage(el) { const pg = S.pages[+el.dataset.no - 1]; if (!pg) return; el.innerHTML = pageSvg(pg, false) + (S.editor && pg.type === 'sheet' ? layBar(pg) : ''); el.dataset.r = '1'; }
 function layOf(ctx) { return { ...(((ctx.conj && ctx.conj.notas) || {})._lay || {}), ...(ctx.tmpLay || {}) }; }
 function rerenderWhere(pred) { if (S.drag) return; document.querySelectorAll('.page[data-r]').forEach(el => { const pg = S.pages[+el.dataset.no - 1]; if (pg && pred(pg)) renderPage(el); }); }
 function goPage(no, flash) {
@@ -709,6 +759,8 @@ $('doc').addEventListener('click', (ev) => {
   if (act === 'upload') { closePop(); S.upload = { cid, key: t.dataset.key }; $('fileIn').value = ''; $('fileIn').click(); return; }
   if (act === 'addpiece') { closePop(); S.upload = { cid, key: null }; $('fileIn').value = ''; $('fileIn').click(); return; }
   if (act === 'delpiece') return askDelete(t, cid, t.dataset.key);
+  if (act === 'tpl') return setTpl(cid, +t.dataset.s, t.dataset.tpl);
+  if (act === 'move') return;
   if (S.editor && (act === 'draw' || act === 'comp' || act === 'resize' || act === 'divv' || act === 'divh')) return;
   if (act === 'draw') {
     const pg = S.pages[+pageEl.dataset.no - 1], ctx = S.C[cid];
@@ -772,6 +824,15 @@ $('doc').addEventListener('pointerdown', (e) => {
     S.drag = { kind: dv.dataset.act, pageEl, ctx, si, ci: +dv.dataset.c, ri: +dv.dataset.i, start: svgPt(svg, e), svg, ws0: [...m.ws], hs0: m.hs.map(h => [...h]), meta: m, before: JSON.parse(JSON.stringify(((ctx.conj.notas || {})._lay) || {})) };
     return;
   }
+  const mv = e.target.closest('[data-act="move"]');
+  if (mv) {
+    e.preventDefault(); closePop();
+    const pageEl = mv.closest('.page'), ctx = S.C[pageEl.dataset.conj], p = ctx.piezas.find(q => q.id === mv.dataset.key);
+    const gh = document.createElement('div'); gh.className = 'ghost'; gh.textContent = `Mover ${p ? p.nombre : ''} · soltá sobre otro recuadro`; document.body.appendChild(gh);
+    gh.style.left = e.clientX + 'px'; gh.style.top = e.clientY + 'px';
+    S.drag = { kind: 'swap', ctx, key: mv.dataset.key, gh, target: null };
+    return;
+  }
   const t = e.target.closest('[data-act="comp"]'); if (!t) return;
   e.preventDefault(); closePop();
   const pageEl = t.closest('.page'), svg = t.ownerSVGElement, start = svgPt(svg, e), key = t.dataset.key;
@@ -794,6 +855,16 @@ $('doc').addEventListener('pointerdown', (e) => {
 document.addEventListener('pointermove', (e) => {
   const d = S.drag; if (!d) return;
   if (d.kind === 'divv' || d.kind === 'divh') { dragDivider(d, e); return; }
+  if (d.kind === 'swap') {
+    d.gh.style.left = e.clientX + 'px'; d.gh.style.top = e.clientY + 'px';
+    const el = document.elementFromPoint(e.clientX, e.clientY), tg = el && el.closest && el.closest('[data-act="draw"], [data-act="comp"]');
+    const pageEl = tg && tg.closest('.page'), ok2 = tg && pageEl.dataset.conj === d.ctx.conj.id && tg.dataset.key !== d.key;
+    document.querySelectorAll('.droptarget').forEach(n => n.classList.remove('droptarget'));
+    d.target = ok2 ? tg.dataset.key : null;
+    if (ok2) { const r = pageEl.querySelector(`[data-act="draw"][data-key="${CSS.escape(d.target)}"]`); if (r) r.classList.add('droptarget'); }
+    d.gh.textContent = ok2 ? `Intercambiar con ${(d.ctx.piezas.find(q => q.id === d.target) || {}).nombre || ''}` : 'Soltá sobre otro recuadro de este enganche';
+    return;
+  }
   const p = svgPt(d.svg, e), dx = p.x - d.start.x, dy = p.y - d.start.y;
   if (d.kind === 'resize') { d.w = Math.max(60, d.cell.w + dx); d.h = Math.max(40, d.cell.h + dy); d.ghost.setAttribute('width', d.w); d.ghost.setAttribute('height', d.h); return; }
   d.els.forEach(el => el.setAttribute('transform', `translate(${dx.toFixed(2)} ${dy.toFixed(2)})`));
@@ -805,6 +876,7 @@ document.addEventListener('pointermove', (e) => {
 document.addEventListener('pointerup', async () => {
   const d = S.drag; if (!d) return; S.drag = null;
   if (d.kind === 'divv' || d.kind === 'divh') { await saveDivider(d); return; }
+  if (d.kind === 'swap') { d.gh.remove(); document.querySelectorAll('.droptarget').forEach(n => n.classList.remove('droptarget')); if (d.target) await swapPieces(d.ctx, d.key, d.target); return; }
   if (d.kind === 'resize') {
     d.ghost.remove();
     const p = d.ctx.piezas.find(q => q.id === d.key);
@@ -851,6 +923,7 @@ async function undoStep() {
     else if (u.type === 'del') await api.addPiezas(u.cid, [u.row]);
     else if (u.type === 'restore') await api.delPieza(u.cid, u.key);
     else if (u.type === 'newconj') { for (const p of [...S.C[u.cid].piezas]) await api.delPieza(u.cid, p.id); }
+    else if (u.type === 'order') { await applyOrder(u.cid, u.before); }
     else if (u.type === 'lay') { const notas = { ...(S.C[u.cid].conj.notas || {}), _lay: u.before }; await api.updConj(u.cid, { notas }); relayout(); }
     S.hist.pop(); toast('Volviste un paso atrás: ' + u.label);
   } catch (er) { console.error(er); toast('No se pudo volver atrás ese paso. Revisá la conexión y probá de nuevo.', 6000); }
@@ -918,6 +991,23 @@ async function saveDivider(d) {
     toast('Recuadros ajustados');
   } catch (er) { writeFail(er); }
   ctx.tmpLay = null; relayout();
+}
+function sortedPieces(ctx) { return [...ctx.piezas].sort((a, b) => ((a.orden ?? 99) - (b.orden ?? 99)) || String(a.id).localeCompare(String(b.id))); }
+async function applyOrder(cid, ids) {
+  const ctx = S.C[cid], cur = Object.fromEntries(ctx.piezas.map(p => [p.id, p.orden]));
+  for (const [i, id] of ids.entries()) if (cur[id] !== i + 1) ok(await sb.from('piezas').update({ orden: i + 1 }).eq('conjunto', cid).eq('id', id));
+  await reloadPiezas(cid);
+}
+async function swapPieces(ctx, a, b) {
+  const cid = ctx.conj.id, ids = sortedPieces(ctx).map(p => p.id), before = [...ids];
+  const ia = ids.indexOf(a), ib = ids.indexOf(b); if (ia < 0 || ib < 0) return;
+  [ids[ia], ids[ib]] = [ids[ib], ids[ia]];
+  try { toast('Acomodando…', 0); await applyOrder(cid, ids); pushStep({ type: 'order', cid, before, label: 'orden de piezas' }); toast('Piezas intercambiadas'); } catch (er) { writeFail(er); }
+}
+async function setTpl(cid, si, tpl) {
+  const ctx = S.C[cid], notas = { ...(ctx.conj.notas || {}) }, before = JSON.parse(JSON.stringify(notas._lay || {}));
+  const lay = { ...(notas._lay || {}) }; if (tpl) lay[si] = { tpl }; else delete lay[si]; notas._lay = lay;
+  try { await api.updConj(cid, { notas }); pushStep({ type: 'lay', cid, before, label: 'distribución de la hoja' }); toast(tpl ? 'Distribución: ' + TPL_NAME[tpl] : 'Distribución automática'); } catch (er) { writeFail(er); }
 }
 async function resetSheetLayout(cid, si) {
   const ctx = S.C[cid], notas = { ...(ctx.conj.notas || {}) }, before = JSON.parse(JSON.stringify(notas._lay || {}));

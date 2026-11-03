@@ -137,7 +137,7 @@ body.editing .page [data-act="draw"] { cursor: default }
 <input type="file" id="fileIn" accept=".dwg,.dxf" hidden>
 <div class="toast" id="toast" hidden></div>
 <div class="edbar" id="edbar" hidden><span><b>Modo editor</b> · Arrastrá un contorno fuera de su recuadro para separarlo como pieza nueva · Arrastrá la esquina de un recuadro para agrandarlo</span>
-  <button class="tb" id="btnUndo" type="button" disabled>Deshacer</button><button class="tb" id="btnEdOff" type="button">Listo</button></div>
+  <button class="tb" id="btnUndo" type="button" disabled title="Volver un paso atrás (Ctrl+Z)" aria-label="Volver un paso atrás"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg> <span id="undoN"></span></button><button class="tb" id="btnEdOff" type="button">Listo</button></div>
 
 <script>
 const CONFIG = {
@@ -576,7 +576,8 @@ function editPiece(anchor, cid, key, what) {
     onSave: async ([v]) => {
       if (what === 'cant' && /^\d+$/.test(v)) v = '×' + v;
       if (what === 'esp' && /^\d+([.,]\d+)?$/.test(v)) v = v.replace('.', ',') + ' mm';
-      if (v !== (p[col] || '')) { await api.updPieza(cid, key, { [col]: v, editado_por: myName() }); toast(`${label}: ${v || '(vacío)'}`); } } });
+      if (v !== (p[col] || '')) { const before = { [col]: p[col] || '' }; await api.updPieza(cid, key, { [col]: v, editado_por: myName() });
+        if (S.editor) pushStep({ type: 'piece', cid, key, before, label: `${label.toLowerCase()} de ${p.nombre}` }); toast(`${label}: ${v || '(vacío)'}`); } } });
 }
 function editConj(anchor, cid) {
   const c = S.C[cid].conj;
@@ -732,7 +733,8 @@ document.addEventListener('pointerup', async () => {
     d.ghost.remove();
     const p = d.ctx.piezas.find(q => q.id === d.key);
     if (Math.abs(d.w - d.cell.w) < 2 && Math.abs(d.h - d.cell.h) < 2) return;
-    try { await api.updPieza(d.ctx.conj.id, d.key, { geom: { ...(p.geom || {}), caja: [Math.round(d.w), Math.round(d.h)] } }); toast('Recuadro ajustado'); } catch (er) { writeFail(er); }
+    try { const before = { geom: p.geom }; await api.updPieza(d.ctx.conj.id, d.key, { geom: { ...(p.geom || {}), caja: [Math.round(d.w), Math.round(d.h)] } });
+      pushStep({ type: 'piece', cid: d.ctx.conj.id, key: d.key, before, label: 'tamaño del recuadro de ' + p.nombre }); toast('Recuadro ajustado'); } catch (er) { writeFail(er); }
     return;
   }
   d.box.remove();
@@ -752,7 +754,7 @@ async function separate(ctx, key, comps, move) {
     await api.updPieza(cid, key, { geom: { ...g1, ...(p.geom && p.geom.caja ? { caja: p.geom.caja } : {}) }, bbox: b1, ancho: fmt(b1[2] - b1[0]), alto: fmt(b1[3] - b1[1]), editado_por: myName() || 'web' });
     await api.addPiezas(cid, [{ conjunto: cid, id: nid, nombre: `${p.nombre} · separada`, codigo: `${codeOf(ctx.conj)}-${nid}`, cant: p.cant || '', esp: p.esp || '',
       ancho: fmt(b2[2] - b2[0]), alto: fmt(b2[3] - b2[1]), orden: p.orden || 0, geom: g2, bbox: b2, archivo: p.archivo || '', editado_por: myName() || 'web' }]);
-    S.undo = { cid, key, nid, before }; $('btnUndo').disabled = false;
+    pushStep({ type: 'split', cid, key, nid, before, label: 'separación de ' + p.nombre });
     toast('Pieza separada. Poné el nombre.', 4000);
     setTimeout(() => {
       const page = S.pages.find(pg => pg.conj === cid && S.C[cid].layout.sheets[pg.s].some(c => c.p && c.p.id === nid));
@@ -760,20 +762,33 @@ async function separate(ctx, key, comps, move) {
     }, 150);
   } catch (er) { writeFail(er); rerenderWhere(pg => pg.conj === cid); }
 }
-$('btnUndo').onclick = async () => {
-  const u = S.undo; if (!u) return;
+/* historial de pasos del editor: cada paso guarda cómo estaba antes */
+S.hist = [];
+function pushStep(step) { S.hist.push(step); if (S.hist.length > 50) S.hist.shift(); updUndo(); }
+function updUndo() { $('btnUndo').disabled = !S.hist.length || S.undoing; $('undoN').textContent = S.hist.length ? S.hist.length : ''; }
+async function undoStep() {
+  if (S.undoing || !S.hist.length) return;
+  const u = S.hist[S.hist.length - 1]; S.undoing = true; updUndo();
   try {
-    await api.updPieza(u.cid, u.key, u.before);
-    await api.delPieza(u.cid, u.nid);
-    S.undo = null; $('btnUndo').disabled = true; toast('Separación deshecha');
-  } catch (er) { console.error(er); toast('No se pudo deshacer del todo. Si la pieza separada quedó, quitala con la ✕ de su recuadro.', 7000); }
-};
+    if (u.type === 'piece') await api.updPieza(u.cid, u.key, u.before);
+    else if (u.type === 'split') { await api.updPieza(u.cid, u.key, u.before); await api.delPieza(u.cid, u.nid); }
+    else if (u.type === 'del') await api.addPiezas(u.cid, [u.row]);
+    S.hist.pop(); toast('Volviste un paso atrás: ' + u.label);
+  } catch (er) { console.error(er); toast('No se pudo volver atrás ese paso. Revisá la conexión y probá de nuevo.', 6000); }
+  S.undoing = false; updUndo();
+}
+$('btnUndo').onclick = undoStep;
+document.addEventListener('keydown', (e) => {
+  if (!S.editor || !(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'z' || e.shiftKey) return;
+  if (e.target.closest('input, textarea')) return;
+  e.preventDefault(); undoStep();
+});
 function askDelete(anchor, cid, key) {
   const p = S.C[cid].piezas.find(q => q.id === key);
   const el = openPop(anchor, `<div class="ph">Quitar pieza</div><div>¿Quitar <b>${esc(p ? p.nombre : key)}</b> de ${esc(codeOf(S.C[cid].conj))}? Queda guardada en el historial por si hay que recuperarla.</div>
     <div class="acts"><button class="pbtn red" data-ok type="button">Quitar pieza</button><button class="pbtn ghost" data-no type="button">Cancelar</button></div>`);
   el.querySelector('[data-no]').onclick = () => closePop();
-  el.querySelector('[data-ok]').onclick = async () => { try { await api.delPieza(cid, key); closePop(); toast('Pieza quitada'); } catch (e) { console.error(e); toast('No se pudo quitar. Falta correr en Supabase el SQL 7 (permiso para quitar piezas).', 7000); } };
+  el.querySelector('[data-ok]').onclick = async () => { try { const row = { ...p }; await api.delPieza(cid, key); pushStep({ type: 'del', cid, row, label: 'quitar ' + p.nombre }); closePop(); toast('Pieza quitada'); } catch (e) { console.error(e); toast('No se pudo quitar. Falta correr en Supabase el SQL 7 (permiso para quitar piezas).', 7000); } };
 }
 $('fileIn').onchange = () => { const f = $('fileIn').files[0]; if (f && S.upload) replaceDrawing(S.upload.cid, S.upload.key, f); };
 

@@ -189,7 +189,7 @@ body.editing .page [data-act="draw"] { cursor: default }
 <div class="docwrap" id="docwrap"><main class="doc" id="doc"><div class="page"><div class="loading">Cargando catálogo…</div></div></main></div>
 <input type="file" id="fileIn" accept=".dwg,.dxf" hidden>
 <div class="toast" id="toast" hidden></div>
-<div class="edbar" id="edbar" hidden><span><b>Modo editor</b> · Arrastrá <b>Mover</b> para cambiar el recuadro de lugar (sobre otro: se intercambian) · Arrastrá la <b>esquina azul</b> para agrandarlo · Arrastrá un contorno afuera para separarlo</span>
+<div class="edbar" id="edbar" hidden><span><b>Modo editor</b> · Arrastrá <b>Mover</b> para llevar el recuadro adonde quieras (se imanta a los bordes de los otros; soltado sobre otro, se intercambian) · Arrastrá la <b>esquina azul</b> para cambiarle el tamaño · Arrastrá un contorno afuera para separarlo</span>
 <button class="tb" id="btnEdOff" type="button">Listo</button></div>
 
 <script>
@@ -296,36 +296,44 @@ function chooseScale(piezas) {
   const minS = Math.min(...near.map(t => t.g.length));
   return near.find(t => t.g.length <= minS) || tries[0];
 }
-/* saved = { idPieza: { s, c, r, cw, rh } } guardado por el editor; lo que no tenga lugar guardado se acomoda solo */
+/* rectángulos libres (mm) */
+const ovl = (a, b, gap = 0) => a.x < b.x + b.w + gap - 0.01 && b.x < a.x + a.w + gap - 0.01 && a.y < b.y + b.h + gap - 0.01 && b.y < a.y + a.h + gap - 0.01;
+const inPA = (r) => r.x >= PA.x - 0.01 && r.y >= PA.y - 0.01 && r.x + r.w <= PA.x + PA.w + 0.01 && r.y + r.h <= PA.y + PA.h + 0.01;
+function findSpot(rects, w, h) {
+  for (let y = PA.y; y + h <= PA.y + PA.h + 0.01; y += 2) for (let x = PA.x; x + w <= PA.x + PA.w + 0.01; x += 2) { const r = { x, y, w, h }; if (!rects.some(o => ovl(r, o, G))) return r; }
+  return null;
+}
+/* saved = { idPieza: { s, x, y, w, h } } (mm, guardado por el editor). Lo que no tenga lugar guardado se acomoda solo. */
 function buildLayout(piezas, saved) {
   if (!piezas.length) return { sc: 3, sheets: [] };
   const { sc, g } = chooseScale(piezas);
-  const mins = new Map(piezas.map(p => [p.id, needMods(p, sc)]));
+  const mm = (p) => cellSize(p, sc);
   let sheets;
   const hasSaved = saved && piezas.some(p => saved[p.id]);
   if (!hasSaved) {
-    sheets = g.map(items => { const ms = items.map(t => t.m), bx = growGrid(autoSheet(ms), ms); return items.map((t, i) => ({ p: t.p, g: bx[i], min: t.m })); });
+    sheets = g.map(items => { const ms = items.map(t => t.m), bx = growGrid(autoSheet(ms), ms); return items.map((t, i) => ({ p: t.p, r: gridRect(bx[i]), min: mm(t.p) })); });
   } else {
     sheets = []; const rest = [];
     for (const p of piezas) {
-      const v = saved[p.id], mn = mins.get(p.id);
-      if (v && v.s >= 0 && v.cw >= mn.cw && v.rh >= mn.rh) {
-        const sh = sheets[v.s] || (sheets[v.s] = []), m = occ(sh.map(e => e.g));
-        if (freeAt(m, v.c, v.r, v.cw, v.rh)) { sh.push({ p, g: { c: v.c, r: v.r, cw: v.cw, rh: v.rh }, min: mn }); continue; }
+      let v = saved[p.id], mn = mm(p);
+      if (v && v.c !== undefined) v = { s: v.s, ...gridRect(v) };
+      if (v && v.s >= 0 && v.w >= mn.w - 0.5 && v.h >= mn.h - 0.5) {
+        const r = { x: v.x, y: v.y, w: v.w, h: v.h }, sh = sheets[v.s] || (sheets[v.s] = []);
+        if (inPA(r) && !sh.some(e => ovl(r, e.r))) { sh.push({ p, r, min: mn }); continue; }
       }
       rest.push(p);
     }
     sheets = sheets.filter(sh => sh && sh.length);
     for (const p of rest) {
-      const mn = mins.get(p.id); let done = false;
-      for (const sh of sheets) { if (sh.length >= 8) continue; const pk = packGrid([...sh.map(e => e.min), mn], sh.map(e => e.g)); if (pk) { sh.push({ p, g: pk[pk.length - 1], min: mn }); done = true; break; } }
-      if (!done) sheets.push([{ p, g: { c: 0, r: 0, cw: Math.min(GC, Math.max(mn.cw, 6)), rh: Math.min(GR, Math.max(mn.rh, 5)) }, min: mn }]);
+      const mn = mm(p); let done = false;
+      for (const sh of sheets) { const r = findSpot(sh.map(e => e.r), mn.w, mn.h); if (r) { sh.push({ p, r, min: mn }); done = true; break; } }
+      if (!done) sheets.push([{ p, r: { x: PA.x, y: PA.y, w: Math.max(mn.w, PA.w * 0.5), h: Math.max(mn.h, PA.h * 0.5) }, min: mn }]);
     }
   }
   return { sc, sheets: sheets.map(sh => {
-    const cells = sh.map(e => ({ p: e.p, g: e.g, min: e.min, ...gridRect(e.g) }));
+    const cells = sh.map(e => ({ p: e.p, min: e.min, x: e.r.x, y: e.r.y, w: e.r.w, h: e.r.h }));
     cells.push({ camb: true, x: PA.x + PA.w + G, y: AY, w: PANEL_W, h: AH });
-    cells.meta = { grid: true, n: sh.length };
+    cells.meta = { n: sh.length };
     return cells;
   }) };
 }
@@ -497,7 +505,7 @@ function sheetSvg(pg, forPdf) {
     o.push(k === 'FECHA' && !forPdf ? `<g data-act="fecha">${hit(xb + 0.5, yy + 0.4, 59, TB / 3 - 0.8)}${cell}</g>` : cell);
   });
   o.push(footer(`${codeOf(cj)} · Hoja ${n}/${total}`, pg.no, forPdf));
-  if (S.editor && !forPdf && cj.notas && cj.notas._grid) o.push(`<g class="autob" data-act="autolay"><rect x="${PW / 2 + 22}" y="${PH - M - 3.4}" width="40" height="5.4" rx="2.7" fill="#fff" stroke="#1f4fa3" stroke-width="0.3"/>${T(PW / 2 + 42, PH - M + 0.4, '↺ Acomodar automático', 2.4, { a: 'middle', c: '#1f4fa3', w: 700 })}</g>`);
+  if (S.editor && !forPdf && cj.notas && (cj.notas._free || cj.notas._grid)) o.push(`<g class="autob" data-act="autolay"><rect x="${PW / 2 + 22}" y="${PH - M - 3.4}" width="40" height="5.4" rx="2.7" fill="#fff" stroke="#1f4fa3" stroke-width="0.3"/>${T(PW / 2 + 42, PH - M + 0.4, '↺ Acomodar automático', 2.4, { a: 'middle', c: '#1f4fa3', w: 700 })}</g>`);
   return o.join('');
 }
 
@@ -606,7 +614,7 @@ function layBar(pg) {
   }).join('')}<button type="button" class="lb auto${saved ? '' : ' on'}" data-act="tpl" data-tpl="" data-s="${pg.s}" title="Elegir automáticamente">Auto</button></div>`;
 }
 function renderPage(el) { const pg = S.pages[+el.dataset.no - 1]; if (!pg) return; el.innerHTML = pageSvg(pg, false); el.dataset.r = '1'; }
-function layOf(ctx) { return (((ctx.conj && ctx.conj.notas) || {})._grid) || null; }
+function layOf(ctx) { const n = (ctx.conj && ctx.conj.notas) || {}; return n._free || n._grid || null; }
 function rerenderWhere(pred) { if (S.drag) return; document.querySelectorAll('.page[data-r]').forEach(el => { const pg = S.pages[+el.dataset.no - 1]; if (pg && pred(pg)) renderPage(el); }); }
 function goPage(no, flash) {
   const el = $('p' + no); if (!el) return;
@@ -871,7 +879,7 @@ $('doc').addEventListener('pointerdown', (e) => {
     const pageEl = gm.closest('.page'), svg = gm.ownerSVGElement, { pg, ctx, cell } = cellOf(pageEl, gm.dataset.key); if (!cell) return;
     const p0 = svgPt(svg, e), kind = gm.dataset.act === 'move' ? 'gmove' : 'gsize';
     document.body.classList.add(kind === 'gmove' ? 'gdrag' : 'gsdrag');
-    S.drag = { kind, ctx, key: gm.dataset.key, s0: pg.s, cell, dc: Math.max(0, Math.floor((p0.x - cell.x) / (MW + G))), dr: Math.max(0, Math.floor((p0.y - cell.y) / (MH + G))), plan: null, ov: null };
+    S.drag = { kind, ctx, key: gm.dataset.key, s0: pg.s, cell, start: p0, plan: null, ov: null };
     gridDrag(e); return;
   }
   const t = e.target.closest('[data-act="comp"]'); if (!t) return;
@@ -967,6 +975,7 @@ async function undoStep() {
     else if (u.type === 'restore') await api.delPieza(u.cid, u.key);
     else if (u.type === 'newconj') { for (const p of [...S.C[u.cid].piezas]) await api.delPieza(u.cid, p.id); }
     else if (u.type === 'order') { await applyOrder(u.cid, u.before); }
+    else if (u.type === 'lay2') { const notas = { ...(S.C[u.cid].conj.notas || {}) }; ['_free', '_grid'].forEach(k => { if (u.before[k] == null) delete notas[k]; else notas[k] = u.before[k]; }); await api.updConj(u.cid, { notas }); relayout(); }
     else if (u.type === 'lay') { const k = u.key || '_lay', notas = { ...(S.C[u.cid].conj.notas || {}) }; if (u.before == null) delete notas[k]; else notas[k] = u.before; await api.updConj(u.cid, { notas }); relayout(); }
     S.hist.pop(); toast('Volviste un paso atrás: ' + u.label);
   } catch (er) { console.error(er); toast('No se pudo volver atrás ese paso. Revisá la conexión y probá de nuevo.', 6000); }
@@ -1036,49 +1045,61 @@ async function saveDivider(d) {
   ctx.tmpLay = null; relayout();
 }
 /* ---- grilla: mover y agrandar recuadros encajando en módulos */
-function placements(ctx) { const out = {}; ctx.layout.sheets.forEach((cells, s) => cells.forEach(c => { if (c.p) out[c.p.id] = { s, ...c.g }; })); return out; }
+function placements(ctx) { const out = {}; ctx.layout.sheets.forEach((cells, s) => cells.forEach(c => { if (c.p) out[c.p.id] = { s, x: c.x, y: c.y, w: c.w, h: c.h }; })); return out; }
 function sheetBoxes(ctx, s, skip) { return (ctx.layout.sheets[s] || []).filter(c => c.p && !skip.includes(c.p.id)).map(c => c.g); }
+/* mover / agrandar libre, al medio milímetro, con imán a los bordes de los otros recuadros y guías */
+const SNAP = 2.5;
+function snapAxis(vals, targets) { let best = null; vals.forEach((v, k) => targets.forEach(t => { const dd = t - v; if (Math.abs(dd) <= SNAP && (!best || Math.abs(dd) < Math.abs(best.d))) best = { d: dd, at: t, k }; })); return best; }
 function gridDrag(e) {
-  const d = S.drag, el = document.elementFromPoint(e.clientX, e.clientY), pageEl = el && el.closest && el.closest('.page');
-  const ok2 = pageEl && pageEl.dataset.conj === d.ctx.conj.id && (d.kind === 'gmove' || +pageEl.dataset.no === S.C[d.ctx.conj.id].firstPage + d.s0);
-  const pageNo = ok2 ? +pageEl.dataset.no : S.C[d.ctx.conj.id].firstPage + d.s0, tEl = $('p' + pageNo), svg = tEl && tEl.querySelector('svg'); if (!svg) return;
-  const s = pageNo - S.C[d.ctx.conj.id].firstPage, pt = svgPt(svg, e), a = d.cell, key = d.key;
-  let plan = { ok: false, rects: [] };
-  const col = (x) => Math.floor((x - PA.x + G / 2) / (MW + G)), row = (y) => Math.floor((y - PA.y + G / 2) / (MH + G));
+  const d = S.drag, cid = d.ctx.conj.id, el = document.elementFromPoint(e.clientX, e.clientY), pageEl = el && el.closest && el.closest('.page');
+  const ok2 = pageEl && pageEl.dataset.conj === cid && (d.kind === 'gmove' || +pageEl.dataset.no === S.C[cid].firstPage + d.s0);
+  const pageNo = ok2 ? +pageEl.dataset.no : S.C[cid].firstPage + d.s0, tEl = $('p' + pageNo), svg = tEl && tEl.querySelector('svg'); if (!svg) return;
+  const s = pageNo - S.C[cid].firstPage, pt = svgPt(svg, e), a = d.cell, key = d.key;
+  const others = (d.ctx.layout.sheets[s] || []).filter(c => c.p && c.p.id !== key);
+  const X = [PA.x, PA.x + PA.w], Y = [PA.y, PA.y + PA.h];
+  others.forEach(o => { X.push(o.x, o.x + o.w, o.x - G, o.x + o.w + G); Y.push(o.y, o.y + o.h, o.y - G, o.y + o.h + G); });
+  const guides = []; let plan;
   if (d.kind === 'gsize') {
-    const cw = Math.min(GC - a.g.c, Math.max(a.min.cw, col(pt.x) - a.g.c + 1)), rh = Math.min(GR - a.g.r, Math.max(a.min.rh, row(pt.y) - a.g.r + 1));
-    const g = { c: a.g.c, r: a.g.r, cw, rh }, okk = freeAt(occ(sheetBoxes(d.ctx, s, [key])), g.c, g.r, cw, rh);
-    plan = { ok: okk && (cw !== a.g.cw || rh !== a.g.rh), bad: !okk, rects: [g], changes: { [key]: { s, ...g } }, msg: okk ? '' : 'Choca con otro recuadro' };
+    let w = a.w + (pt.x - d.start.x), h = a.h + (pt.y - d.start.y);
+    const sx = snapAxis([a.x + w], X), sy = snapAxis([a.y + h], Y);
+    if (sx) { w += sx.d; guides.push({ v: true, at: sx.at }); } if (sy) { h += sy.d; guides.push({ v: false, at: sy.at }); }
+    w = Math.round(Math.min(PA.x + PA.w - a.x, Math.max(a.min.w, w)) * 2) / 2; h = Math.round(Math.min(PA.y + PA.h - a.y, Math.max(a.min.h, h)) * 2) / 2;
+    const r = { x: a.x, y: a.y, w, h }, hit = others.some(o => ovl(r, o));
+    plan = { ok: !hit && (Math.abs(w - a.w) > 0.4 || Math.abs(h - a.h) > 0.4), bad: hit, r, changes: { [key]: { s, ...r } }, msg: hit ? 'Choca con otro recuadro' : `${Math.round(w)} × ${Math.round(h)} mm` };
   } else {
-    const other = (d.ctx.layout.sheets[s] || []).find(c => c.p && c.p.id !== key && pt.x >= c.x && pt.x <= c.x + c.w && pt.y >= c.y && pt.y <= c.y + c.h);
+    const other = others.find(o => pt.x >= o.x && pt.x <= o.x + o.w && pt.y >= o.y && pt.y <= o.y + o.h && !(s === d.s0 && pt.x >= a.x && pt.x <= a.x + a.w && pt.y >= a.y && pt.y <= a.y + a.h));
     if (other) {
-      const okA = other.g.cw >= a.min.cw && other.g.rh >= a.min.rh, okB = a.g.cw >= other.min.cw && a.g.rh >= other.min.rh;
-      plan = { ok: okA && okB, bad: !(okA && okB), swap: true, rects: [other.g], rects2: s === d.s0 ? [a.g] : [], changes: { [key]: { s, ...other.g }, [other.p.id]: { s: d.s0, ...a.g } }, msg: okA && okB ? 'Intercambiar con ' + (other.p.nombre || '') : 'No entran intercambiadas' };
+      const okA = other.w >= a.min.w - 0.5 && other.h >= a.min.h - 0.5, okB = a.w >= other.min.w - 0.5 && a.h >= other.min.h - 0.5;
+      const ra = { x: other.x, y: other.y, w: other.w, h: other.h }, rb = { x: a.x, y: a.y, w: a.w, h: a.h };
+      plan = { ok: okA && okB, bad: !(okA && okB), r: ra, r2: s === d.s0 ? rb : null, changes: { [key]: { s, ...ra }, [other.p.id]: { s: d.s0, ...rb } }, msg: okA && okB ? 'Intercambiar con ' + (other.p.nombre || '') : 'No entran intercambiadas' };
     } else {
-      const g = { c: Math.min(GC - a.g.cw, Math.max(0, col(pt.x) - d.dc)), r: Math.min(GR - a.g.rh, Math.max(0, row(pt.y) - d.dr)), cw: a.g.cw, rh: a.g.rh };
-      const okk = freeAt(occ(sheetBoxes(d.ctx, s, [key])), g.c, g.r, g.cw, g.rh), same = s === d.s0 && g.c === a.g.c && g.r === a.g.r;
-      plan = { ok: okk && !same, bad: !okk, rects: [g], changes: { [key]: { s, ...g } }, msg: okk ? '' : 'Ahí no hay lugar' };
+      let x = a.x + (pt.x - d.start.x), y = a.y + (pt.y - d.start.y);
+      const sx = snapAxis([x, x + a.w, x + a.w / 2], [...X, ...others.map(o => o.x + o.w / 2 - 0)]), sy = snapAxis([y, y + a.h, y + a.h / 2], [...Y, ...others.map(o => o.y + o.h / 2)]);
+      if (sx) { x += sx.d; guides.push({ v: true, at: sx.at }); } if (sy) { y += sy.d; guides.push({ v: false, at: sy.at }); }
+      x = Math.round(Math.min(PA.x + PA.w - a.w, Math.max(PA.x, x)) * 2) / 2; y = Math.round(Math.min(PA.y + PA.h - a.h, Math.max(PA.y, y)) * 2) / 2;
+      const r = { x, y, w: a.w, h: a.h }, hit = others.some(o => ovl(r, o)), same = s === d.s0 && Math.abs(x - a.x) < 0.4 && Math.abs(y - a.y) < 0.4;
+      plan = { ok: !hit && !same, bad: hit, r, changes: { [key]: { s, ...r } }, msg: hit ? 'Se pisa con otro recuadro' : '' };
     }
   }
   d.plan = plan;
   if (d.ov && d.ov.ownerSVGElement !== svg) { d.ov.remove(); d.ov = null; }
   if (!d.ov) { d.ov = document.createElementNS(NS, 'g'); d.ov.setAttribute('pointer-events', 'none'); svg.appendChild(d.ov); }
-  const mods = []; for (let r = 0; r < GR; r++) for (let c = 0; c < GC; c++) { const q = gridRect({ c, r, cw: 1, rh: 1 }); mods.push(`<rect x="${q.x.toFixed(2)}" y="${q.y.toFixed(2)}" width="${q.w.toFixed(2)}" height="${q.h.toFixed(2)}" rx="0.8"/>`); }
-  const colr = plan.bad ? RED : '#1f4fa3';
-  const box = (g, dash) => { const q = gridRect(g); return `<rect x="${q.x}" y="${q.y}" width="${q.w}" height="${q.h}" fill="${colr}" fill-opacity="${dash ? 0.05 : 0.12}" stroke="${colr}" stroke-width="0.7"${dash ? ' stroke-dasharray="2 1.2"' : ''}/>`; };
-  const lab = plan.rects[0] ? gridRect(plan.rects[0]) : null;
-  d.ov.innerHTML = `<g fill="#1f4fa3" fill-opacity="0.045" stroke="#1f4fa3" stroke-opacity="0.18" stroke-width="0.15">${mods.join('')}</g>` + plan.rects.map(g => box(g)).join('') + (plan.rects2 || []).map(g => box(g, true)).join('')
-    + (plan.msg && lab ? `<rect x="${lab.x + lab.w / 2 - 26}" y="${lab.y + lab.h / 2 - 4}" width="52" height="8" rx="2" fill="${colr}"/>${T(lab.x + lab.w / 2, lab.y + lab.h / 2 + 1.1, plan.msg, 2.7, { a: 'middle', c: '#fff', w: 700 })}` : '');
+  const colr = plan.bad ? RED : '#1f4fa3', box = (q, dash) => `<rect x="${q.x}" y="${q.y}" width="${q.w}" height="${q.h}" fill="${colr}" fill-opacity="${dash ? 0.05 : 0.12}" stroke="${colr}" stroke-width="0.6"${dash ? ' stroke-dasharray="2 1.2"' : ''}/>`;
+  const gl = guides.map(g => g.v ? `<line x1="${g.at}" y1="${M}" x2="${g.at}" y2="${PH - M - TB - 4}"/>` : `<line x1="${M}" y1="${g.at}" x2="${PW - M}" y2="${g.at}"/>`).join('');
+  const q = plan.r;
+  d.ov.innerHTML = `<rect x="${PA.x}" y="${PA.y}" width="${PA.w}" height="${PA.h}" fill="none" stroke="#1f4fa3" stroke-opacity=".35" stroke-width="0.25" stroke-dasharray="1 1"/>` + box(q) + (plan.r2 ? box(plan.r2, true) : '')
+    + `<g stroke="#e3007a" stroke-width="0.3" stroke-dasharray="1.6 0.8">${gl}</g>`
+    + (plan.msg ? `<rect x="${q.x + q.w / 2 - 27}" y="${q.y + q.h / 2 - 4}" width="54" height="8" rx="2" fill="${colr}"/>${T(q.x + q.w / 2, q.y + q.h / 2 + 1.1, plan.msg, 2.7, { a: 'middle', c: '#fff', w: 700 })}` : '');
 }
 async function saveGrid(ctx, changes, label) {
-  const cid = ctx.conj.id, notas = { ...(ctx.conj.notas || {}) }, before = notas._grid ? JSON.parse(JSON.stringify(notas._grid)) : null;
-  const grid = { ...placements(ctx), ...changes }; notas._grid = grid;
-  try { await api.updConj(cid, { notas }); pushStep({ type: 'lay', key: '_grid', cid, before, label }); toast(label === 'mover recuadro' ? 'Recuadro movido' : 'Recuadro ajustado'); } catch (er) { writeFail(er); }
+  const cid = ctx.conj.id, notas = { ...(ctx.conj.notas || {}) }, before = { _free: notas._free || null, _grid: notas._grid || null };
+  notas._free = { ...placements(ctx), ...changes }; delete notas._grid;
+  try { await api.updConj(cid, { notas }); pushStep({ type: 'lay2', cid, before, label }); toast(label === 'mover recuadro' ? 'Recuadro movido' : 'Recuadro ajustado'); } catch (er) { writeFail(er); }
 }
 async function autoLay(cid) {
-  const ctx = S.C[cid], notas = { ...(ctx.conj.notas || {}) }, before = notas._grid ? JSON.parse(JSON.stringify(notas._grid)) : null; if (!before) return;
-  delete notas._grid;
-  try { await api.updConj(cid, { notas }); pushStep({ type: 'lay', key: '_grid', cid, before, label: 'acomodar automático' }); toast('Acomodado automáticamente'); } catch (er) { writeFail(er); }
+  const ctx = S.C[cid], notas = { ...(ctx.conj.notas || {}) }, before = { _free: notas._free || null, _grid: notas._grid || null }; if (!before._free && !before._grid) return;
+  delete notas._grid; delete notas._free;
+  try { await api.updConj(cid, { notas }); pushStep({ type: 'lay2', cid, before, label: 'acomodar automático' }); toast('Acomodado automáticamente'); } catch (er) { writeFail(er); }
 }
 function sortedPieces(ctx) { return [...ctx.piezas].sort((a, b) => ((a.orden ?? 99) - (b.orden ?? 99)) || String(a.id).localeCompare(String(b.id))); }
 async function applyOrder(cid, ids) {
@@ -1401,8 +1422,8 @@ function describe(kind, cid, a, d) {
   }
   if (kind === 'updConj') {
     const c = S.C[cid] && S.C[cid].conj, out = [];
-    if (d.notas) { const o = (c && c.notas) || {}, n = d.notas; const txt = (v) => JSON.stringify(Object.fromEntries(Object.entries(v || {}).filter(([k]) => k !== '_lay' && k !== '_grid')));
-      if (txt(o) !== txt(n)) out.push('Editó las notas'); if (JSON.stringify(o._lay || {}) !== JSON.stringify(n._lay || {}) || JSON.stringify(o._grid || {}) !== JSON.stringify(n._grid || {})) out.push(n._grid ? 'Reacomodó los recuadros de las piezas' : 'Volvió a acomodar automático'); }
+    if (d.notas) { const o = (c && c.notas) || {}, n = d.notas; const txt = (v) => JSON.stringify(Object.fromEntries(Object.entries(v || {}).filter(([k]) => k !== '_lay' && k !== '_grid' && k !== '_free')));
+      if (txt(o) !== txt(n)) out.push('Editó las notas'); if (JSON.stringify(o._lay || {}) !== JSON.stringify(n._lay || {}) || JSON.stringify(o._grid || {}) !== JSON.stringify(n._grid || {}) || JSON.stringify(o._free || {}) !== JSON.stringify(n._free || {})) out.push(n._free || n._grid ? 'Reacomodó los recuadros de las piezas' : 'Volvió a acomodar automático'); }
     if (d.nombre !== undefined) out.push('Nombre: ' + d.nombre); if (d.codigo !== undefined) out.push('Código: ' + d.codigo); if (d.fecha !== undefined) out.push('Fecha: ' + d.fecha);
     return out.join(' · ');
   }

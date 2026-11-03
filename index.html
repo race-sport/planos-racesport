@@ -78,6 +78,26 @@ button:focus-visible, .res:focus-visible { outline: 2px solid var(--accent); out
 .page .hit { fill: transparent; transition: fill .12s }
 .page [data-act]:hover > .hit, .page [data-act].on > .hit { fill: rgba(227, 0, 22, .07) }
 .page [data-act="upload"]:hover .upl, .page [data-act="addpiece"]:hover .upl { fill: #fdecee }
+/* novedades */
+.tb.nov { position: relative } .tb.nov.has { color: var(--accent); border-color: var(--accent) }
+.tb.nov b { position: absolute; top: -7px; right: -7px; min-width: 19px; height: 19px; padding: 0 5px; border-radius: 99px; background: var(--accent); color: #fff; font-size: .72rem; display: grid; place-items: center; box-shadow: 0 0 0 2px var(--paper) }
+.tb.nov.ring svg { animation: ring .8s ease 2 } @keyframes ring { 0%,100% { transform: rotate(0) } 25% { transform: rotate(14deg) } 75% { transform: rotate(-14deg) } }
+@media (prefers-reduced-motion: reduce) { .tb.nov.ring svg { animation: none } }
+.novlist { display: grid; gap: 2px; max-height: min(60vh, 460px); overflow: auto; margin: 0 -4px }
+.novday { font-size: .68rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); padding: 8px 6px 2px }
+.novrow { display: grid; grid-template-columns: 8px 1fr auto; gap: 8px; align-items: start; text-align: left; border: 0; background: none; color: inherit; font: inherit; padding: 8px 6px; border-radius: 7px; cursor: pointer; width: 100% }
+.novrow:hover { background: var(--bg) } .novrow i { width: 8px; height: 8px; border-radius: 50%; margin-top: 6px; background: transparent } .novrow.new i { background: var(--accent) }
+.novrow .t { font-size: .92rem; line-height: 1.3 } .novrow .t b { font-family: var(--f-mono, monospace); color: var(--accent); font-size: .85rem; margin-right: 4px }
+.novrow small { display: block; color: var(--muted); font-size: .76rem; margin-top: 2px } .novrow .h { font-size: .74rem; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; margin-top: 2px }
+.novrow.mine { opacity: .62 }
+.novfoot { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; justify-content: space-between; border-top: 1px solid var(--line); padding-top: 10px; font-size: .8rem; color: var(--muted) }
+.novfoot button { font: inherit; font-size: .8rem; font-weight: 700; border: 0; background: none; color: var(--accent); cursor: pointer; padding: 4px 0 }
+.novcard { position: fixed; right: 16px; bottom: 16px; z-index: 60; width: min(360px, calc(100vw - 32px)); background: var(--paper); color: var(--ink); border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 10px; box-shadow: 0 12px 40px rgba(0,0,0,.22); padding: 12px 12px 12px 14px; display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; animation: novin .25s ease }
+@keyframes novin { from { transform: translateY(12px); opacity: 0 } }
+.novcard .k { grid-column: 1 / -1; font-size: .68rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--accent) }
+.novcard .t { font-size: .95rem; line-height: 1.3 } .novcard .t b { font-family: var(--f-mono, monospace) }
+.novcard .a { display: flex; gap: 6px; align-items: start } .novcard button { font: inherit; font-weight: 700; font-size: .85rem; border-radius: 7px; border: 0; padding: 7px 11px; cursor: pointer; background: var(--ink); color: var(--paper) } .novcard button.x { background: none; color: var(--muted); padding: 7px 6px }
+.page.flashnov { outline: 3px solid var(--accent); outline-offset: 4px; transition: outline-color 1.2s }
 /* modo editor */
 body.editing .doc { gap: 64px; padding-top: 64px }
 .laybar { position: absolute; bottom: calc(100% + 6px); right: 0; display: flex; gap: 4px; align-items: center; background: var(--paper); border: 1px solid var(--line); border-radius: 10px; padding: 4px 6px; box-shadow: 0 4px 18px rgba(0,0,0,.12); z-index: 2 }
@@ -160,6 +180,7 @@ body.editing .page [data-act="draw"] { cursor: default }
     <button class="tb ed" id="btnEd" type="button" aria-pressed="false">Modo editor</button>
     <button class="tb ic" id="btnUndo" type="button" disabled title="Volver un paso atrás (Ctrl+Z)" aria-label="Volver un paso atrás"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg><span id="undoN"></span></button>
     <button class="tb ic" id="btnBin" type="button" title="Papelera: recuperar piezas quitadas" aria-label="Papelera"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6"/></svg><span class="lbl">Papelera</span></button>
+    <button class="tb ic nov" id="btnNov" type="button" title="Novedades: cambios hechos en otras PC" aria-label="Novedades" hidden><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 8 3 8H3s3-1 3-8"/><path d="M10.3 20a2 2 0 0 0 3.4 0"/></svg><b id="novN" hidden>0</b></button>
     <button class="tb pri" id="btnPdf" type="button">Exportar PDF</button>
     <span class="live" id="live"><i></i><span id="liveTxt">Conectando…</span></span>
   </div>
@@ -263,22 +284,25 @@ function bestTpl(items, want) {
 }
 function groupAt(piezas, sc) {
   if (piezas.some(p => { const c = cellSize(p, sc); return c.w > PA.w || c.h > PA.h; })) return null;
-  const groups = []; let cur = [];
+  const groups = [];
   for (const p of piezas) {
     const it = { p, ...cellSize(p, sc) };
-    if (cur.length < 6 && bestTpl([...cur, it])) cur.push(it); else { if (cur.length) groups.push(cur); cur = [it]; }
+    const g = groups.find(gr => gr.length < 6 && bestTpl([...gr, it]));
+    if (g) g.push(it); else groups.push([it]);
   }
-  if (cur.length) groups.push(cur);
   return groups;
 }
-/* Escala única por enganche (todas las piezas a la misma escala, coherente).
-   Se usa la más grande que se pueda leer (la más chica numéricamente) sin gastar hojas de más:
-   si achicando un poco entran en menos hojas, se achica (hasta 1:10 como mucho). */
+/* Escala única por enganche (todas las piezas a la misma escala = coherencia dimensional).
+   La escala la manda la pieza más grande: tiene que verse grande, ocupando como mínimo
+   ~la mitad del área útil. Dentro de ese margen se elige la que use menos hojas. */
+const MAIN_FILL = 0.5;
 function buildLayout(piezas, ovs) {
   if (!piezas.length) return { sc: 3, sheets: [] };
-  const tries = SCALES.filter(s => s >= 3).map(sc => ({ sc, g: groupAt(piezas, sc) })).filter(t => t.g);
+  const fitSc = Math.max(...piezas.map(p => { const { W, H } = partSize(p); return Math.max(W / (PA.w - 18), H / (PA.h - HB - 19)); }));
+  const cand = SCALES.filter(s => s >= fitSc - 1e-9);
+  const tries = cand.map(sc => ({ sc, g: groupAt(piezas, sc) })).filter(t => t.g);
   const first = tries[0] || { sc: SCALES[SCALES.length - 1], g: piezas.map(p => [{ p, ...cellSize(p, 40) }]) };
-  const near = tries.filter(t => t.sc <= Math.max(10, first.sc * 2.5));
+  const near = tries.filter(t => t.sc <= Math.max(first.sc, fitSc / MAIN_FILL) + 1e-9);
   const minS = Math.min(...near.map(t => t.g.length));
   const pick = near.find(t => t.g.length <= minS) || first;
   const { sc, g: groups } = pick;
@@ -1002,7 +1026,7 @@ async function swapPieces(ctx, a, b) {
   const cid = ctx.conj.id, ids = sortedPieces(ctx).map(p => p.id), before = [...ids];
   const ia = ids.indexOf(a), ib = ids.indexOf(b); if (ia < 0 || ib < 0) return;
   [ids[ia], ids[ib]] = [ids[ib], ids[ia]];
-  try { toast('Acomodando…', 0); await applyOrder(cid, ids); pushStep({ type: 'order', cid, before, label: 'orden de piezas' }); toast('Piezas intercambiadas'); } catch (er) { writeFail(er); }
+  try { toast('Acomodando…', 0); await applyOrder(cid, ids); pushStep({ type: 'order', cid, before, label: 'orden de piezas' }); toast('Piezas intercambiadas'); logNov(cid, `Intercambió de lugar ${pzName(cid, a)} y ${pzName(cid, b)}`); } catch (er) { writeFail(er); }
 }
 async function setTpl(cid, si, tpl) {
   const ctx = S.C[cid], notas = { ...(ctx.conj.notas || {}) }, before = JSON.parse(JSON.stringify(notas._lay || {}));
@@ -1292,6 +1316,113 @@ const api = {
   async addPiezas(cid, rows) { ok(await sb.from('piezas').insert(rows)); await reloadPiezas(cid); },
   async updPieza(cid, key, d) { ok(await sb.from('piezas').update(d).eq('conjunto', cid).eq('id', key)); await reloadPiezas(cid); },
 };
+/* ------------------------------------------------------------ novedades: qué se cambió y desde qué PC */
+const DEV = (() => { try { let d = localStorage.getItem('rs_dev'); if (!d) { d = Math.random().toString(36).slice(2, 10); localStorage.setItem('rs_dev', d); } return d; } catch (e) { return 'x' + Math.random().toString(36).slice(2, 8); } })();
+const NOV = { list: [], on: false, seen: (() => { try { return localStorage.getItem('rs_novSeen') || ''; } catch (e) { return ''; } })(), last: {} };
+function pzName(cid, key) { const c = S.C[cid], p = c && c.piezas.find(q => q.id === key); return p ? (p.nombre || p.id) : key || ''; }
+async function logNov(cid, texto, pieza) {
+  if (!NOV.on || !texto) return;
+  const k = cid + '|' + texto; if (NOV.last[k] && Date.now() - NOV.last[k] < 4000) return; NOV.last[k] = Date.now();
+  const row = { conjunto: cid, pieza: pieza || null, texto: texto.slice(0, 300), quien: myName() || '', equipo: DEV };
+  try { const r = await sb.from('novedades').insert(row).select(); if (r.error) throw r.error; if (r.data && r.data[0]) addNov({ en: new Date().toISOString(), ...r.data[0] }, false); } catch (e) { console.warn(e); }
+}
+function describe(kind, cid, a, d) {
+  const nm = pzName(cid, a);
+  if (kind === 'updPieza') {
+    if (d.geom && d.archivo !== undefined) return `Dibujo nuevo para ${nm} (${d.archivo})`;
+    if (d.geom) return `Se separó o modificó el dibujo de ${nm}`;
+    const lab = { cant: 'Cantidad', esp: 'Espesor', nombre: 'Nombre', codigo: 'Código', ancho: 'Ancho', alto: 'Alto' };
+    const ks = Object.keys(d).filter(x => lab[x]); if (!ks.length) return '';
+    return ks.map(x => `${lab[x]} de ${nm}: ${d[x] || '(vacío)'}`).join(' · ');
+  }
+  if (kind === 'updConj') {
+    const c = S.C[cid] && S.C[cid].conj, out = [];
+    if (d.notas) { const o = (c && c.notas) || {}, n = d.notas; const txt = (v) => JSON.stringify(Object.fromEntries(Object.entries(v || {}).filter(([k]) => k !== '_lay')));
+      if (txt(o) !== txt(n)) out.push('Editó las notas'); if (JSON.stringify(o._lay || {}) !== JSON.stringify(n._lay || {})) out.push('Cambió la distribución de la hoja'); }
+    if (d.nombre !== undefined) out.push('Nombre: ' + d.nombre); if (d.codigo !== undefined) out.push('Código: ' + d.codigo); if (d.fecha !== undefined) out.push('Fecha: ' + d.fecha);
+    return out.join(' · ');
+  }
+  return '';
+}
+const api0 = { ...api };
+api.addCambio = async (cid, c) => { await api0.addCambio(cid, c); const n = S.C[cid].cambios.reduce((m, x) => Math.max(m, x.n || 0), 0); logNov(cid, `Cambio ${n} en ${pzName(cid, c.pieza)}: ${c.texto}`, c.pieza); };
+api.updCambio = async (cid, id, d) => { const c = S.C[cid].cambios.find(x => x.id === id) || {}; await api0.updCambio(cid, id, d);
+  logNov(cid, d.aplicado === true ? `Cambio ${c.n} marcado como hecho` : d.aplicado === false ? `Cambio ${c.n} vuelto a pendiente` : `Editó el cambio ${c.n}: ${d.texto || ''}`, c.pieza); };
+api.delCambio = async (cid, id) => { const c = S.C[cid].cambios.find(x => x.id === id) || {}; await api0.delCambio(cid, id); logNov(cid, `Borró el cambio ${c.n}${c.texto ? ': ' + c.texto : ''}`, c.pieza); };
+api.updConj = async (cid, d) => { const t = describe('updConj', cid, null, d); await api0.updConj(cid, d); logNov(cid, t); };
+api.delPieza = async (cid, key) => { const nm = pzName(cid, key); await api0.delPieza(cid, key); logNov(cid, `Quitó la pieza ${nm}`, key); };
+api.addPiezas = async (cid, rows) => { await api0.addPiezas(cid, rows); logNov(cid, `Agregó ${rows.length > 1 ? rows.length + ' piezas' : 'la pieza'}: ${rows.map(r => r.nombre || r.id).join(', ')}`, rows.length === 1 ? rows[0].id : null); };
+api.updPieza = async (cid, key, d) => { const t = describe('updPieza', cid, key, d); await api0.updPieza(cid, key, d); logNov(cid, t, key); };
+const isMine = (n) => n.equipo === DEV;
+function unseen() { return NOV.list.filter(n => !isMine(n) && n.en > NOV.seen); }
+function paintBell(ring) {
+  const b = $('btnNov'), u = unseen().length; b.hidden = !NOV.on;
+  $('novN').hidden = !u; $('novN').textContent = u > 99 ? '99+' : u; b.classList.toggle('has', !!u);
+  b.title = u ? `${u} cambio${u > 1 ? 's' : ''} nuevo${u > 1 ? 's' : ''} hecho${u > 1 ? 's' : ''} en otras PC` : 'Novedades: cambios hechos en otras PC';
+  if (ring) { b.classList.remove('ring'); void b.offsetWidth; b.classList.add('ring'); }
+  document.title = (u ? `(${u}) ` : '') + document.title.replace(/^\(\d+\+?\) /, '');
+}
+function addNov(n, fromOther) {
+  if (NOV.list.some(x => x.id === n.id)) return;
+  NOV.list.unshift(n); NOV.list.sort((a, b) => (b.en > a.en ? 1 : -1)); NOV.list.length = Math.min(NOV.list.length, 300);
+  if (fromOther && !isMine(n)) { paintBell(true); showNovCard(n); }
+  else paintBell(false);
+  if (POP && POP.el.querySelector('#novList')) renderNovList();
+}
+function codeOfId(cid) { return S.C[cid] ? codeOf(S.C[cid].conj) : cid; }
+function ago(iso) { const m = Math.round((Date.now() - new Date(iso)) / 60000); if (m < 1) return 'recién'; if (m < 60) return `hace ${m} min`; const d = new Date(iso); return d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }); }
+function showNovCard(n) {
+  document.querySelectorAll('.novcard').forEach(e => e.remove());
+  const el = document.createElement('div'); el.className = 'novcard'; el.setAttribute('role', 'status');
+  el.innerHTML = `<div class="k">Cambio en otra PC${n.quien ? ' · ' + esc(n.quien) : ''}</div><div class="t"><b>${esc(codeOfId(n.conjunto))}</b> ${esc(n.texto)}</div><div class="a"><button type="button" data-v>Ver</button><button type="button" class="x" data-x aria-label="Cerrar">✕</button></div>`;
+  document.body.appendChild(el);
+  el.querySelector('[data-v]').onclick = () => { el.remove(); goNov(n); };
+  el.querySelector('[data-x]').onclick = () => el.remove();
+  clearTimeout(showNovCard.t); showNovCard.t = setTimeout(() => el.remove(), 15000);
+  try { if (document.hidden && 'Notification' in window && Notification.permission === 'granted') { const w = new Notification(`${codeOfId(n.conjunto)} · cambio en otra PC`, { body: (n.quien ? n.quien + ': ' : '') + n.texto, tag: 'rs-nov' }); w.onclick = () => { window.focus(); goNov(n); w.close(); }; } } catch (e) {}
+}
+function goNov(n) {
+  const ctx = S.C[n.conjunto]; if (!ctx) return toast('Ese enganche ya no está en el catálogo');
+  let pg = S.pages.find(p => p.conj === n.conjunto && n.pieza && ctx.layout.sheets[p.s] && ctx.layout.sheets[p.s].some(c => c.p && c.p.id === n.pieza)) || S.pages.find(p => p.conj === n.conjunto);
+  if (!pg) return; closePop(); goPage(pg.no, true);
+  const el = document.getElementById('p' + pg.no); if (el) { el.classList.add('flashnov'); setTimeout(() => el.classList.remove('flashnov'), 2600); }
+}
+function markSeen() { const top = NOV.list[0] && NOV.list[0].en; if (!top || top <= NOV.seen) return paintBell(false); NOV.seen = top; try { localStorage.setItem('rs_novSeen', NOV.seen); } catch (e) {} paintBell(false); }
+function renderNovList() {
+  const box = POP && POP.el.querySelector('#novList'); if (!box) return;
+  if (!NOV.list.length) { box.innerHTML = '<div class="meta" style="padding:8px 6px">Todavía no hay cambios registrados.</div>'; return; }
+  let day = '';
+  box.innerHTML = NOV.list.slice(0, 120).map((n, i) => {
+    const d = new Date(n.en), dk = d.toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' });
+    const hd = dk !== day ? `<div class="novday">${esc(d.toDateString() === new Date().toDateString() ? 'Hoy' : dk)}</div>` : ''; day = dk;
+    const cls = isMine(n) ? 'mine' : (n.en > NOV.seenOpen ? 'new' : '');
+    return `${hd}<button type="button" class="novrow ${cls}" data-n="${i}"><i></i><span class="t"><b>${esc(codeOfId(n.conjunto))}</b>${esc(n.texto)}<small>${esc(isMine(n) ? 'Esta PC' : (n.quien || 'Otra PC'))}</small></span><span class="h">${esc(ago(n.en))}</span></button>`;
+  }).join('');
+  box.onclick = (e) => { const b = e.target.closest('[data-n]'); if (b) goNov(NOV.list.slice(0, 120)[+b.dataset.n]); };
+}
+function openNov() {
+  NOV.seenOpen = NOV.seen;
+  const u = unseen().length;
+  const perm = ('Notification' in window) && Notification.permission === 'default';
+  const el = openPop($('btnNov'), `<div class="ph">Novedades${u ? ` · <span style="color:var(--accent)">${u} nueva${u > 1 ? 's' : ''}</span>` : ''}</div>
+    <div class="novlist" id="novList"></div>
+    <div class="novfoot"><span>Esta PC: <button type="button" data-name>${esc(myName() || 'ponerle nombre')}</button></span>${perm ? '<button type="button" data-perm>Avisarme aunque esté en otra ventana</button>' : ''}</div>`, { wide: true });
+  renderNovList(); markSeen();
+  el.querySelector('[data-name]').onclick = () => { const v = prompt('Nombre de esta PC o puesto (ej.: Corte, Plegado, Oficina):', myName()); if (v != null && v.trim()) { setName(v.trim()); el.querySelector('[data-name]').textContent = v.trim(); } };
+  const pb = el.querySelector('[data-perm]'); if (pb) pb.onclick = async () => { try { await Notification.requestPermission(); } catch (e) {} pb.remove(); };
+}
+async function startNov() {
+  try {
+    const { data, error } = await sb.from('novedades').select('*').order('en', { ascending: false }).limit(200);
+    if (error) throw error;
+    NOV.on = true; NOV.list = data || [];
+    if (!NOV.seen) { NOV.seen = NOV.list[0] ? NOV.list[0].en : '0'; try { localStorage.setItem('rs_novSeen', NOV.seen); } catch (e) {} }
+    paintBell(false);
+    $('btnNov').onclick = () => { if (POP && POP.el.querySelector('#novList')) closePop(); else openNov(); };
+    setInterval(() => { if (POP && POP.el.querySelector('#novList')) renderNovList(); }, 60000);
+    sb.channel('novedades').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'novedades' }, (pl) => { if (pl.new) addNov(pl.new, true); }).subscribe();
+  } catch (e) { NOV.on = false; console.warn('novedades no disponible', e); }
+}
 function writeFail(e) { console.error(e); toast(navigator.onLine ? 'No se pudo guardar. Probá de nuevo.' : 'Sin internet: no se guardó.'); }
 function setLive(on, txt) { $('live').classList.toggle('on', on); $('liveTxt').textContent = txt; }
 const catOrd = (c) => { const i = CATS.indexOf(c.categoria); return i < 0 ? 9 : i; };
@@ -1307,7 +1438,7 @@ async function reloadPiezas(cid) {
 let lastSeen = new Set();
 async function reloadCambios(cid) {
   const { data, error } = await sb.from('cambios').select('*').eq('conjunto', cid).order('n'); if (error) return;
-  data.forEach(c => { if (!lastSeen.has(c.id) && c.autor !== myName()) { const p = S.C[cid].piezas.find(x => x.id === c.pieza); toast(`Nuevo cambio ${c.n} en ${codeOf(S.C[cid].conj)}${p ? ' · ' + p.nombre : ''}${c.autor ? ' · ' + c.autor : ''}`); } lastSeen.add(c.id); });
+  data.forEach(c => { if (!NOV.on && !lastSeen.has(c.id) && c.autor !== myName()) { const p = S.C[cid].piezas.find(x => x.id === c.pieza); toast(`Nuevo cambio ${c.n} en ${codeOf(S.C[cid].conj)}${p ? ' · ' + p.nombre : ''}${c.autor ? ' · ' + c.autor : ''}`); } lastSeen.add(c.id); });
   S.C[cid].cambios = data;
   if (!POP) rerenderWhere(pg => pg.conj === cid || pg.type !== 'sheet');
 }
@@ -1325,6 +1456,7 @@ async function reloadCambios(cid) {
   const h = decodeURIComponent(location.hash.slice(1));
   if (/^p\d+$/.test(h)) goPage(+h.slice(1)); else if (h && S.C[h]) goPage(S.C[h].firstPage);
   let tC = {}, tP = {};
+  startNov();
   sb.channel('todo')
     .on('postgres_changes', { event: '*', schema: 'public', table: 'conjuntos' }, (pl) => { const id = (pl.new && pl.new.id) || (pl.old && pl.old.id); if (S.C[id]) reloadConj(id); })
     .on('postgres_changes', { event: '*', schema: 'public', table: 'piezas' }, (pl) => { const id = (pl.new && pl.new.conjunto) || (pl.old && pl.old.conjunto); if (!S.C[id]) return; clearTimeout(tP[id]); tP[id] = setTimeout(() => reloadPiezas(id), 300); })

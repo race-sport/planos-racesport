@@ -75,6 +75,12 @@ button:focus-visible, .res:focus-visible { outline: 2px solid var(--accent); out
 .page [data-act]:hover > .hit, .page [data-act].on > .hit { fill: rgba(227, 0, 22, .07) }
 .page [data-act="upload"]:hover .upl, .page [data-act="addpiece"]:hover .upl { fill: #fdecee }
 /* modo editor */
+.tb.ic { display: inline-flex; align-items: center; gap: 6px; padding: 8px 10px }
+.tb.ic svg { display: block } #undoN { font-size: .8rem; font-variant-numeric: tabular-nums } #undoN:empty { display: none }
+.bin { display: grid; gap: 6px; max-height: min(55vh, 420px); overflow-y: auto; margin: 0 -4px; padding: 0 4px }
+.binrow { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line) }
+.binrow b { font-family: var(--f-mono); color: var(--accent); font-size: .85rem } .binrow .nm { font-weight: 600 } .binrow small { display: block; color: var(--muted); font-size: .76rem }
+@media (max-width: 640px) { .tb .lbl { display: none } }
 .tb.ed[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff }
 .edbar { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(14px + env(safe-area-inset-bottom, 0px)); z-index: 20; background: var(--ink); color: var(--paper);
   border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,.25); padding: 10px 12px 10px 16px; display: flex; gap: 12px; align-items: center; max-width: calc(100% - 24px); font-size: .88rem }
@@ -128,6 +134,8 @@ body.editing .page [data-act="draw"] { cursor: default }
     <span class="pg-now" id="pgNow"></span>
     <button class="tb" id="btnIdx" type="button">Índice</button>
     <button class="tb ed" id="btnEd" type="button" aria-pressed="false">Modo editor</button>
+    <button class="tb ic" id="btnUndo" type="button" disabled title="Volver un paso atrás (Ctrl+Z)" aria-label="Volver un paso atrás"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg><span id="undoN"></span></button>
+    <button class="tb ic" id="btnBin" type="button" title="Papelera: recuperar piezas quitadas" aria-label="Papelera"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6"/></svg><span class="lbl">Papelera</span></button>
     <button class="tb pri" id="btnPdf" type="button">Exportar PDF</button>
     <span class="live" id="live"><i></i><span id="liveTxt">Conectando…</span></span>
   </div>
@@ -136,8 +144,8 @@ body.editing .page [data-act="draw"] { cursor: default }
 <main class="doc" id="doc"><div class="page"><div class="loading">Cargando catálogo…</div></div></main>
 <input type="file" id="fileIn" accept=".dwg,.dxf" hidden>
 <div class="toast" id="toast" hidden></div>
-<div class="edbar" id="edbar" hidden><span><b>Modo editor</b> · Arrastrá un contorno fuera de su recuadro para separarlo como pieza nueva · Arrastrá la esquina de un recuadro para agrandarlo</span>
-  <button class="tb" id="btnUndo" type="button" disabled title="Volver un paso atrás (Ctrl+Z)" aria-label="Volver un paso atrás"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg> <span id="undoN"></span></button><button class="tb" id="btnEdOff" type="button">Listo</button></div>
+<div class="edbar" id="edbar" hidden><span><b>Modo editor</b> · Arrastrá un contorno fuera de su recuadro para separarlo como pieza nueva · Arrastrá la esquina de un recuadro para agrandarlo · ↶ arriba vuelve un paso atrás</span>
+<button class="tb" id="btnEdOff" type="button">Listo</button></div>
 
 <script>
 const CONFIG = {
@@ -577,7 +585,7 @@ function editPiece(anchor, cid, key, what) {
       if (what === 'cant' && /^\d+$/.test(v)) v = '×' + v;
       if (what === 'esp' && /^\d+([.,]\d+)?$/.test(v)) v = v.replace('.', ',') + ' mm';
       if (v !== (p[col] || '')) { const before = { [col]: p[col] || '' }; await api.updPieza(cid, key, { [col]: v, editado_por: myName() });
-        if (S.editor) pushStep({ type: 'piece', cid, key, before, label: `${label.toLowerCase()} de ${p.nombre}` }); toast(`${label}: ${v || '(vacío)'}`); } } });
+        pushStep({ type: 'piece', cid, key, before, label: `${label.toLowerCase()} de ${p.nombre}` }); toast(`${label}: ${v || '(vacío)'}`); } } });
 }
 function editConj(anchor, cid) {
   const c = S.C[cid].conj;
@@ -773,16 +781,42 @@ async function undoStep() {
     if (u.type === 'piece') await api.updPieza(u.cid, u.key, u.before);
     else if (u.type === 'split') { await api.updPieza(u.cid, u.key, u.before); await api.delPieza(u.cid, u.nid); }
     else if (u.type === 'del') await api.addPiezas(u.cid, [u.row]);
+    else if (u.type === 'restore') await api.delPieza(u.cid, u.key);
     S.hist.pop(); toast('Volviste un paso atrás: ' + u.label);
   } catch (er) { console.error(er); toast('No se pudo volver atrás ese paso. Revisá la conexión y probá de nuevo.', 6000); }
   S.undoing = false; updUndo();
 }
 $('btnUndo').onclick = undoStep;
 document.addEventListener('keydown', (e) => {
-  if (!S.editor || !(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'z' || e.shiftKey) return;
+  if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'z' || e.shiftKey) return;
   if (e.target.closest('input, textarea')) return;
   e.preventDefault(); undoStep();
 });
+async function openBin() {
+  const btn = $('btnBin');
+  const el = openPop(btn, `<div class="ph">Papelera · piezas quitadas</div><div class="bin" id="binList"><div class="meta">Cargando…</div></div>`, { wide: true });
+  const { data, error } = await sb.from('historial').select('id,antes,en').eq('tabla', 'piezas').eq('accion', 'DELETE').order('en', { ascending: false }).limit(60);
+  const box = el.querySelector('#binList'); if (!box) return;
+  if (error) { box.innerHTML = '<div class="meta">No pude leer la papelera. Revisá la conexión.</div>'; return; }
+  const seen = new Set();
+  const rows = (data || []).filter(h => { const a = h.antes || {}, k = a.conjunto + '|' + a.id; if (seen.has(k) || !S.C[a.conjunto] || S.C[a.conjunto].piezas.some(p => p.id === a.id)) return false; seen.add(k); return true; });
+  if (!rows.length) { box.innerHTML = '<div class="meta">No hay piezas quitadas para recuperar.</div>'; return; }
+  box.innerHTML = rows.map((h, i) => { const a = h.antes, when = new Date(h.en).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    return `<div class="binrow"><div><b>${esc(codeOf(S.C[a.conjunto].conj))}</b> <span class="nm">${esc(a.nombre || a.id)}</span><small>Quitada ${esc(when)}${a.editado_por ? ' · última edición: ' + esc(a.editado_por) : ''}</small></div>
+      <button class="pbtn pri" type="button" data-r="${i}">Recuperar</button></div>`; }).join('');
+  box.onclick = async (e) => {
+    const b = e.target.closest('[data-r]'); if (!b) return; b.disabled = true; b.textContent = 'Recuperando…';
+    const a = { ...rows[+b.dataset.r].antes };
+    try {
+      await api.addPiezas(a.conjunto, [a]);
+      pushStep({ type: 'restore', cid: a.conjunto, key: a.id, label: 'recuperar ' + (a.nombre || a.id) });
+      closePop(); toast(`${a.nombre || a.id} recuperada en ${codeOf(S.C[a.conjunto].conj)}`, 5000);
+      const page = S.pages.find(pg => pg.conj === a.conjunto && S.C[a.conjunto].layout.sheets[pg.s].some(c => c.p && c.p.id === a.id));
+      if (page) goPage(page.no, true);
+    } catch (er) { console.error(er); b.disabled = false; b.textContent = 'Recuperar'; toast('No se pudo recuperar. Probá de nuevo.', 5000); }
+  };
+}
+$('btnBin').onclick = () => { if (POP && POP.el.querySelector('#binList')) closePop(); else openBin(); };
 function askDelete(anchor, cid, key) {
   const p = S.C[cid].piezas.find(q => q.id === key);
   const el = openPop(anchor, `<div class="ph">Quitar pieza</div><div>¿Quitar <b>${esc(p ? p.nombre : key)}</b> de ${esc(codeOf(S.C[cid].conj))}? Queda guardada en el historial por si hay que recuperarla.</div>

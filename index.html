@@ -99,7 +99,6 @@ button:focus-visible, .res:focus-visible { outline: 2px solid var(--accent); out
 .novcard .a { display: flex; gap: 6px; align-items: start } .novcard button { font: inherit; font-weight: 700; font-size: .85rem; border-radius: 7px; border: 0; padding: 7px 11px; cursor: pointer; background: var(--ink); color: var(--paper) } .novcard button.x { background: none; color: var(--muted); padding: 7px 6px }
 .page.flashnov { outline: 3px solid var(--accent); outline-offset: 4px; transition: outline-color 1.2s }
 /* modo editor */
-body.editing .doc { gap: 64px; padding-top: 64px }
 .laybar { position: absolute; bottom: calc(100% + 6px); right: 0; display: flex; gap: 4px; align-items: center; background: var(--paper); border: 1px solid var(--line); border-radius: 10px; padding: 4px 6px; box-shadow: 0 4px 18px rgba(0,0,0,.12); z-index: 2 }
 .laybar span { font-size: .72rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); padding: 0 4px }
 .laybar .lb { border: 1.5px solid transparent; background: none; border-radius: 7px; padding: 2px; cursor: pointer; line-height: 0 }
@@ -107,7 +106,8 @@ body.editing .doc { gap: 64px; padding-top: 64px }
 .laybar .lb:hover { border-color: var(--line) } .laybar .lb.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent) } .laybar .lb.auto.on { color: var(--accent) }
 .laybar .lb:disabled { opacity: .3; cursor: not-allowed }
 .laybar .tb-p { fill: #e8ecf3; stroke: #1f4fa3; stroke-width: .8 } .laybar .on .tb-p { fill: #fde5e8; stroke: #e30016 } .laybar .tb-c { fill: #f2f2f2; stroke: #aab; stroke-width: .6; stroke-dasharray: 1.5 1 }
-.page .mv { cursor: grab; touch-action: none } .page .mv:hover rect { fill: #e8eef9 }
+.page .mv { cursor: grab; touch-action: none } .page .gsz { cursor: nwse-resize; touch-action: none } .page .gsz:hover path:first-of-type { fill: #e30016 } .page .autob { cursor: pointer } .page .autob:hover rect { fill: #e8eef9 }
+body.gdrag, body.gdrag * { cursor: grabbing !important; user-select: none } body.gsdrag, body.gsdrag * { cursor: nwse-resize !important; user-select: none } .page .mv:hover rect { fill: #e8eef9 }
 .page .droptarget { fill: rgba(31,79,163,.10) !important; stroke: #1f4fa3; stroke-width: .6; stroke-dasharray: 2 1.2 }
 .ghost { position: fixed; z-index: 50; pointer-events: none; background: #1f4fa3; color: #fff; font-weight: 700; font-size: .85rem; padding: 6px 10px; border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.25); transform: translate(12px, 12px) }
 .page .div .dz { fill: transparent } .page .div line { stroke: #1f4fa3; stroke-width: 0.35; stroke-dasharray: 1.2 1 } .page .div .grip { fill: #1f4fa3 }
@@ -189,7 +189,7 @@ body.editing .page [data-act="draw"] { cursor: default }
 <div class="docwrap" id="docwrap"><main class="doc" id="doc"><div class="page"><div class="loading">Cargando catálogo…</div></div></main></div>
 <input type="file" id="fileIn" accept=".dwg,.dxf" hidden>
 <div class="toast" id="toast" hidden></div>
-<div class="edbar" id="edbar" hidden><span><b>Modo editor</b> · Elegí la <b>distribución</b> arriba de cada hoja · Arrastrá <b>Mover</b> sobre otro recuadro para intercambiarlos · Arrastrá un contorno afuera para separarlo</span>
+<div class="edbar" id="edbar" hidden><span><b>Modo editor</b> · Arrastrá <b>Mover</b> para cambiar el recuadro de lugar (sobre otro: se intercambian) · Arrastrá la <b>esquina azul</b> para agrandarlo · Arrastrá un contorno afuera para separarlo</span>
 <button class="tb" id="btnEdOff" type="button">Listo</button></div>
 
 <script>
@@ -234,83 +234,98 @@ function bboxOf(g) {
 function partSize(p) { const b = p.bbox; return { W: b[2] - b[0], H: b[3] - b[1] }; }
 
 /* ------------------------------------------------------------ armado de hojas
-   Cada hoja: a la derecha, el recuadro fijo de CAMBIOS + NOTAS (siempre igual);
-   a la izquierda, las piezas en una distribución definida (columnas, filas, una grande + chicas, cuadrícula). */
+   Cada hoja: a la derecha, el recuadro fijo de CAMBIOS + NOTAS (siempre igual).
+   A la izquierda, una grilla invisible de GC × GR módulos: cada recuadro de pieza ocupa
+   módulos enteros, así todo queda alineado. Todas las piezas de un enganche van a la misma
+   escala, y la manda la pieza más grande (que ocupe al menos la mitad del área útil). */
 const PANEL_W = 72;
 const PA = { x: AX, y: AY, w: AW - PANEL_W - G, h: AH };
+const GC = 12, GR = 9;
+const MW = (PA.w - G * (GC - 1)) / GC, MH = (PA.h - G * (GR - 1)) / GR;
 const SCALES = [1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10, 15, 20, 30, 40];
-const TPLS = { 1: ['full'], 2: ['cols', 'rows'], 3: ['bigL', 'bigT', 'cols', 'rows'], 4: ['grid', 'bigL', 'bigT', 'cols', 'rows'], 5: ['grid', 'cols', 'rows'], 6: ['grid', 'cols', 'rows'] };
-const TPL_NAME = { full: 'Una sola', cols: 'Lado a lado', rows: 'Una arriba de otra', bigL: 'Grande a la izquierda', bigT: 'Grande arriba', grid: 'Cuadrícula' };
-function cellSize(p, sc) {
-  const { W, H } = partSize(p);
-  return { w: Math.max(W / sc + 18, 58), h: Math.max(H / sc + 8 + HB + 11, 46) };
+const MAIN_FILL = 0.5;
+function cellSize(p, sc) { const { W, H } = partSize(p); return { w: Math.max(W / sc + 18, 58), h: Math.max(H / sc + 8 + HB + 11, 46) }; }
+function needMods(p, sc) { const c = cellSize(p, sc); return { cw: Math.ceil((c.w + G) / (MW + G) - 1e-6), rh: Math.ceil((c.h + G) / (MH + G) - 1e-6) }; }
+function gridRect(g) { return { x: PA.x + g.c * (MW + G), y: PA.y + g.r * (MH + G), w: g.cw * MW + (g.cw - 1) * G, h: g.rh * MH + (g.rh - 1) * G }; }
+function occ(boxes, skip) { const m = Array.from({ length: GR }, () => Array(GC).fill(null)); boxes.forEach((b, i) => { if (i === skip || !b) return; for (let r = b.r; r < b.r + b.rh; r++) for (let c = b.c; c < b.c + b.cw; c++) if (m[r]) m[r][c] = i; }); return m; }
+function freeAt(m, c, r, cw, rh) { if (c < 0 || r < 0 || c + cw > GC || r + rh > GR) return false; for (let y = r; y < r + rh; y++) for (let x = c; x < c + cw; x++) if (m[y][x] !== null) return false; return true; }
+/* pone cada pieza (tamaño mínimo en módulos) en el primer lugar libre, recorriendo por filas */
+function packGrid(mins, fixed) {
+  const boxes = fixed ? fixed.slice() : [];
+  for (let i = boxes.length; i < mins.length; i++) {
+    const m = occ(boxes), { cw, rh } = mins[i]; let put = null;
+    for (let r = 0; r <= GR - rh && !put; r++) for (let c = 0; c <= GC - cw && !put; c++) if (freeAt(m, c, r, cw, rh)) put = { c, r, cw, rh };
+    if (!put) return null; boxes.push(put);
+  }
+  return boxes;
 }
-function share(total, needs) {
-  const n = needs.length, avail = total - G * (n - 1), sum = needs.reduce((a, b) => a + b, 0);
-  if (sum > avail + 0.01) return null;
-  return needs.map(v => v + (avail - sum) * v / sum);
+/* agranda los recuadros para llenar la hoja, de a un módulo, siempre al que está más apretado */
+function growGrid(boxes, mins) {
+  for (let guard = 0; guard < 400; guard++) {
+    const order = boxes.map((b, i) => i).sort((a, b) => (boxes[a].cw * boxes[a].rh) / (mins[a].cw * mins[a].rh) - (boxes[b].cw * boxes[b].rh) / (mins[b].cw * mins[b].rh));
+    let grew = false;
+    for (const i of order) {
+      const b = boxes[i], m = occ(boxes, i);
+      const tries = [{ ...b, cw: b.cw + 1 }, { ...b, rh: b.rh + 1 }, { ...b, c: b.c - 1, cw: b.cw + 1 }, { ...b, r: b.r - 1, rh: b.rh + 1 }];
+      const t = tries.find(t => freeAt(m, t.c, t.r, t.cw, t.rh)); if (t) { boxes[i] = t; grew = true; break; }
+    }
+    if (!grew) break;
+  }
+  return boxes;
 }
-function tplBoxes(tpl, ns, A) {
-  const { x, y, w, h } = A, out = [];
-  if (tpl === 'full') return ns[0].w <= w && ns[0].h <= h ? [{ x, y, w, h }] : null;
-  if (tpl === 'cols') { if (ns.some(n => n.h > h)) return null; const ws = share(w, ns.map(n => n.w)); if (!ws) return null; let cx = x; ws.forEach(ww => { out.push({ x: cx, y, w: ww, h }); cx += ww + G; }); return out; }
-  if (tpl === 'rows') { if (ns.some(n => n.w > w)) return null; const hs = share(h, ns.map(n => n.h)); if (!hs) return null; let cy = y; hs.forEach(hh => { out.push({ x, y: cy, w, h: hh }); cy += hh + G; }); return out; }
-  if (tpl === 'bigL') { const r = ns.slice(1); const ws = share(w, [ns[0].w, Math.max(...r.map(n => n.w))]); const hs = share(h, r.map(n => n.h)); if (!ws || !hs || ns[0].h > h) return null;
-    out.push({ x, y, w: ws[0], h }); let cy = y; hs.forEach(hh => { out.push({ x: x + ws[0] + G, y: cy, w: ws[1], h: hh }); cy += hh + G; }); return out; }
-  if (tpl === 'bigT') { const r = ns.slice(1); const hs = share(h, [ns[0].h, Math.max(...r.map(n => n.h))]); const ws = share(w, r.map(n => n.w)); if (!ws || !hs || ns[0].w > w) return null;
-    out.push({ x, y, w, h: hs[0] }); let cx = x; ws.forEach(ww => { out.push({ x: cx, y: y + hs[0] + G, w: ww, h: hs[1] }); cx += ww + G; }); return out; }
-  if (tpl === 'grid') { const c = ns.length <= 4 ? 2 : 3, rows = []; for (let i = 0; i < ns.length; i += c) rows.push(ns.slice(i, i + c));
-    const rh = share(h, rows.map(rw => Math.max(...rw.map(n => n.h)))); if (!rh) return null; let cy = y;
-    for (let i = 0; i < rows.length; i++) { const ws = share(w, rows[i].map(n => n.w)); if (!ws) return null; let cx = x; ws.forEach(ww => { out.push({ x: cx, y: cy, w: ww, h: rh[i] }); cx += ww + G; }); cy += rh[i] + G; }
-    return out; }
+function autoSheet(mins) {
+  const idx = mins.map((_, i) => i), bySize = [...idx].sort((a, b) => mins[b].cw * mins[b].rh - mins[a].cw * mins[a].rh);
+  for (const ord of [idx, bySize]) { const pk = packGrid(ord.map(i => mins[i])); if (pk) { const out = []; ord.forEach((ii, k) => out[ii] = pk[k]); return out; } }
   return null;
 }
-/* prueba una distribución: devuelve las cajas en el orden de las piezas y un puntaje (más alto = dibujos más grandes y parejos) */
-function tryTpl(tpl, items) {
-  const ns = items.map(i => ({ w: i.w, h: i.h }));
-  let order = items.map((_, i) => i);
-  if (tpl === 'bigL' || tpl === 'bigT') { const big = ns.reduce((bi, n, i) => n.w * n.h > ns[bi].w * ns[bi].h ? i : bi, 0); order = [big, ...order.filter(i => i !== big)]; }
-  const boxes = tplBoxes(tpl, order.map(i => ns[i]), PA); if (!boxes) return null;
-  const byItem = []; order.forEach((ii, k) => byItem[ii] = boxes[k]);
-  const fits = byItem.map((b, i) => Math.min(b.w / ns[i].w, b.h / ns[i].h));
-  const min = Math.min(...fits), avg = fits.reduce((a, b) => a + b, 0) / fits.length;
-  return { tpl, boxes: byItem, score: min * 10 + avg };
-}
-function bestTpl(items, want) {
-  const opts = (TPLS[Math.min(items.length, 6)] || ['grid']).map(t => tryTpl(t, items)).filter(Boolean);
-  if (!opts.length) return null;
-  const chosen = (want && opts.find(o => o.tpl === want)) || opts.reduce((a, b) => b.score > a.score ? b : a);
-  return { ...chosen, options: opts.map(o => o.tpl) };
-}
 function groupAt(piezas, sc) {
-  if (piezas.some(p => { const c = cellSize(p, sc); return c.w > PA.w || c.h > PA.h; })) return null;
+  const items = piezas.map(p => ({ p, m: needMods(p, sc) }));
+  if (items.some(t => t.m.cw > GC || t.m.rh > GR)) return null;
   const groups = [];
-  for (const p of piezas) {
-    const it = { p, ...cellSize(p, sc) };
-    const g = groups.find(gr => gr.length < 6 && bestTpl([...gr, it]));
+  for (const it of items) {
+    const g = groups.find(gr => gr.length < 8 && autoSheet([...gr, it].map(t => t.m)));
     if (g) g.push(it); else groups.push([it]);
   }
   return groups;
 }
-/* Escala única por enganche (todas las piezas a la misma escala = coherencia dimensional).
-   La escala la manda la pieza más grande: tiene que verse grande, ocupando como mínimo
-   ~la mitad del área útil. Dentro de ese margen se elige la que use menos hojas. */
-const MAIN_FILL = 0.5;
-function buildLayout(piezas, ovs) {
-  if (!piezas.length) return { sc: 3, sheets: [] };
+function chooseScale(piezas) {
   const fitSc = Math.max(...piezas.map(p => { const { W, H } = partSize(p); return Math.max(W / (PA.w - 18), H / (PA.h - HB - 19)); }));
-  const cand = SCALES.filter(s => s >= fitSc - 1e-9);
-  const tries = cand.map(sc => ({ sc, g: groupAt(piezas, sc) })).filter(t => t.g);
-  const first = tries[0] || { sc: SCALES[SCALES.length - 1], g: piezas.map(p => [{ p, ...cellSize(p, 40) }]) };
-  const near = tries.filter(t => t.sc <= Math.max(first.sc, fitSc / MAIN_FILL) + 1e-9);
+  const tries = SCALES.filter(s => s >= fitSc - 1e-9).map(sc => ({ sc, g: groupAt(piezas, sc) })).filter(t => t.g);
+  if (!tries.length) return { sc: SCALES[SCALES.length - 1], g: piezas.map(p => [{ p, m: { cw: GC, rh: GR } }]) };
+  const near = tries.filter(t => t.sc <= Math.max(tries[0].sc, fitSc / MAIN_FILL) + 1e-9);
   const minS = Math.min(...near.map(t => t.g.length));
-  const pick = near.find(t => t.g.length <= minS) || first;
-  const { sc, g: groups } = pick;
-  return { sc, sheets: groups.map((items, si) => {
-    const b = bestTpl(items, ovs && ovs[si] && ovs[si].tpl) || { tpl: 'full', boxes: items.map(() => ({ ...PA })), options: [] };
-    const cells = items.map((it, i) => ({ ...it, ...b.boxes[i] }));
+  return near.find(t => t.g.length <= minS) || tries[0];
+}
+/* saved = { idPieza: { s, c, r, cw, rh } } guardado por el editor; lo que no tenga lugar guardado se acomoda solo */
+function buildLayout(piezas, saved) {
+  if (!piezas.length) return { sc: 3, sheets: [] };
+  const { sc, g } = chooseScale(piezas);
+  const mins = new Map(piezas.map(p => [p.id, needMods(p, sc)]));
+  let sheets;
+  const hasSaved = saved && piezas.some(p => saved[p.id]);
+  if (!hasSaved) {
+    sheets = g.map(items => { const ms = items.map(t => t.m), bx = growGrid(autoSheet(ms), ms); return items.map((t, i) => ({ p: t.p, g: bx[i], min: t.m })); });
+  } else {
+    sheets = []; const rest = [];
+    for (const p of piezas) {
+      const v = saved[p.id], mn = mins.get(p.id);
+      if (v && v.s >= 0 && v.cw >= mn.cw && v.rh >= mn.rh) {
+        const sh = sheets[v.s] || (sheets[v.s] = []), m = occ(sh.map(e => e.g));
+        if (freeAt(m, v.c, v.r, v.cw, v.rh)) { sh.push({ p, g: { c: v.c, r: v.r, cw: v.cw, rh: v.rh }, min: mn }); continue; }
+      }
+      rest.push(p);
+    }
+    sheets = sheets.filter(sh => sh && sh.length);
+    for (const p of rest) {
+      const mn = mins.get(p.id); let done = false;
+      for (const sh of sheets) { if (sh.length >= 8) continue; const pk = packGrid([...sh.map(e => e.min), mn], sh.map(e => e.g)); if (pk) { sh.push({ p, g: pk[pk.length - 1], min: mn }); done = true; break; } }
+      if (!done) sheets.push([{ p, g: { c: 0, r: 0, cw: Math.min(GC, Math.max(mn.cw, 6)), rh: Math.min(GR, Math.max(mn.rh, 5)) }, min: mn }]);
+    }
+  }
+  return { sc, sheets: sheets.map(sh => {
+    const cells = sh.map(e => ({ p: e.p, g: e.g, min: e.min, ...gridRect(e.g) }));
     cells.push({ camb: true, x: PA.x + PA.w + G, y: AY, w: PANEL_W, h: AH });
-    cells.meta = { tpl: b.tpl, options: b.options, n: items.length };
+    cells.meta = { grid: true, n: sh.length };
     return cells;
   }) };
 }
@@ -391,6 +406,7 @@ function pieceCell(ctx, c, sc, forPdf) {
     const mvx = chipIn ? 21.5 : 2.5;
     o.push(`<g class="mv" data-act="move" data-key="${pid}"><rect x="${x + mvx}" y="${y + HB + 1.6}" width="17" height="4.6" rx="2.3" fill="#fff" stroke="#9fb3d6" stroke-width="0.25"/>
       ${[0, 1, 2].map(r => [0, 1].map(cc => `<circle cx="${x + mvx + 2.5 + cc * 1.3}" cy="${y + HB + 2.75 + r * 1.15}" r="0.38" fill="#1f4fa3"/>`).join('')).join('')}${T(x + mvx + 5.7, y + HB + 4.8, 'Mover', 2.3, { c: '#1f4fa3', w: 700 })}</g>`);
+    o.push(`<g class="gsz" data-act="gsz" data-key="${pid}"><rect x="${x + w - 9}" y="${y + h - 9}" width="9" height="9" fill="transparent"/><path d="M${x + w - 1.2} ${y + h - 6.5} V${y + h - 1.2} H${x + w - 6.5} Z" fill="#1f4fa3"/><path d="M${x + w - 2.6} ${y + h - 9} l-6.4 6.4 M${x + w - 2.6} ${y + h - 6} l-3.4 3.4" stroke="#1f4fa3" stroke-width="0.3" opacity=".55"/></g>`);
     o.push(`<g class="xdel" data-act="delpiece" data-key="${pid}"><circle cx="${x + w - 3.5}" cy="${y + HB + 3.5}" r="2.3" fill="#fff" stroke="#c5c8cd" stroke-width="0.25"/><path d="M${x + w - 4.4} ${y + HB + 2.6} l1.8 1.8 m0 -1.8 l-1.8 1.8" stroke="#666" stroke-width="0.35" stroke-linecap="round"/></g>`);
   } else o.push(`<g pointer-events="none">${geomSvg(p.geom || {}, P, k)}</g>`);
   if ((p.geom || {}).multi) o.push(T(x + 3, ay + 4.6, 'Varias piezas en este archivo · sin cotas generales', 2.3, { c: '#777' }));
@@ -481,6 +497,7 @@ function sheetSvg(pg, forPdf) {
     o.push(k === 'FECHA' && !forPdf ? `<g data-act="fecha">${hit(xb + 0.5, yy + 0.4, 59, TB / 3 - 0.8)}${cell}</g>` : cell);
   });
   o.push(footer(`${codeOf(cj)} · Hoja ${n}/${total}`, pg.no, forPdf));
+  if (S.editor && !forPdf && cj.notas && cj.notas._grid) o.push(`<g class="autob" data-act="autolay"><rect x="${PW / 2 + 22}" y="${PH - M - 3.4}" width="40" height="5.4" rx="2.7" fill="#fff" stroke="#1f4fa3" stroke-width="0.3"/>${T(PW / 2 + 42, PH - M + 0.4, '↺ Acomodar automático', 2.4, { a: 'middle', c: '#1f4fa3', w: 700 })}</g>`);
   return o.join('');
 }
 
@@ -588,8 +605,8 @@ function layBar(pg) {
     return `<button type="button" class="lb${t === m.tpl ? ' on' : ''}" data-act="tpl" data-tpl="${t}" data-s="${pg.s}" title="${TPL_NAME[t]}${okT ? '' : ' (no entran las piezas)'}"${okT ? '' : ' disabled'}>${tplThumb(t, m.n)}</button>`;
   }).join('')}<button type="button" class="lb auto${saved ? '' : ' on'}" data-act="tpl" data-tpl="" data-s="${pg.s}" title="Elegir automáticamente">Auto</button></div>`;
 }
-function renderPage(el) { const pg = S.pages[+el.dataset.no - 1]; if (!pg) return; el.innerHTML = pageSvg(pg, false) + (S.editor && pg.type === 'sheet' ? layBar(pg) : ''); el.dataset.r = '1'; }
-function layOf(ctx) { return { ...(((ctx.conj && ctx.conj.notas) || {})._lay || {}), ...(ctx.tmpLay || {}) }; }
+function renderPage(el) { const pg = S.pages[+el.dataset.no - 1]; if (!pg) return; el.innerHTML = pageSvg(pg, false); el.dataset.r = '1'; }
+function layOf(ctx) { return (((ctx.conj && ctx.conj.notas) || {})._grid) || null; }
 function rerenderWhere(pred) { if (S.drag) return; document.querySelectorAll('.page[data-r]').forEach(el => { const pg = S.pages[+el.dataset.no - 1]; if (pg && pred(pg)) renderPage(el); }); }
 function goPage(no, flash) {
   const el = $('p' + no); if (!el) return;
@@ -783,8 +800,8 @@ $('doc').addEventListener('click', (ev) => {
   if (act === 'upload') { closePop(); S.upload = { cid, key: t.dataset.key }; $('fileIn').value = ''; $('fileIn').click(); return; }
   if (act === 'addpiece') { closePop(); S.upload = { cid, key: null }; $('fileIn').value = ''; $('fileIn').click(); return; }
   if (act === 'delpiece') return askDelete(t, cid, t.dataset.key);
-  if (act === 'tpl') return setTpl(cid, +t.dataset.s, t.dataset.tpl);
-  if (act === 'move') return;
+  if (act === 'autolay') return autoLay(cid);
+  if (act === 'move' || act === 'gsz') return;
   if (S.editor && (act === 'draw' || act === 'comp' || act === 'resize' || act === 'divv' || act === 'divh')) return;
   if (act === 'draw') {
     const pg = S.pages[+pageEl.dataset.no - 1], ctx = S.C[cid];
@@ -848,14 +865,14 @@ $('doc').addEventListener('pointerdown', (e) => {
     S.drag = { kind: dv.dataset.act, pageEl, ctx, si, ci: +dv.dataset.c, ri: +dv.dataset.i, start: svgPt(svg, e), svg, ws0: [...m.ws], hs0: m.hs.map(h => [...h]), meta: m, before: JSON.parse(JSON.stringify(((ctx.conj.notas || {})._lay) || {})) };
     return;
   }
-  const mv = e.target.closest('[data-act="move"]');
-  if (mv) {
+  const gm = e.target.closest('[data-act="move"], [data-act="gsz"]');
+  if (gm) {
     e.preventDefault(); closePop();
-    const pageEl = mv.closest('.page'), ctx = S.C[pageEl.dataset.conj], p = ctx.piezas.find(q => q.id === mv.dataset.key);
-    const gh = document.createElement('div'); gh.className = 'ghost'; gh.textContent = `Mover ${p ? p.nombre : ''} · soltá sobre otro recuadro`; document.body.appendChild(gh);
-    gh.style.left = e.clientX + 'px'; gh.style.top = e.clientY + 'px';
-    S.drag = { kind: 'swap', ctx, key: mv.dataset.key, gh, target: null };
-    return;
+    const pageEl = gm.closest('.page'), svg = gm.ownerSVGElement, { pg, ctx, cell } = cellOf(pageEl, gm.dataset.key); if (!cell) return;
+    const p0 = svgPt(svg, e), kind = gm.dataset.act === 'move' ? 'gmove' : 'gsize';
+    document.body.classList.add(kind === 'gmove' ? 'gdrag' : 'gsdrag');
+    S.drag = { kind, ctx, key: gm.dataset.key, s0: pg.s, cell, dc: Math.max(0, Math.floor((p0.x - cell.x) / (MW + G))), dr: Math.max(0, Math.floor((p0.y - cell.y) / (MH + G))), plan: null, ov: null };
+    gridDrag(e); return;
   }
   const t = e.target.closest('[data-act="comp"]'); if (!t) return;
   e.preventDefault(); closePop();
@@ -879,6 +896,7 @@ $('doc').addEventListener('pointerdown', (e) => {
 document.addEventListener('pointermove', (e) => {
   const d = S.drag; if (!d) return;
   if (d.kind === 'divv' || d.kind === 'divh') { dragDivider(d, e); return; }
+  if (d.kind === 'gmove' || d.kind === 'gsize') { gridDrag(e); return; }
   if (d.kind === 'swap') {
     d.gh.style.left = e.clientX + 'px'; d.gh.style.top = e.clientY + 'px';
     const el = document.elementFromPoint(e.clientX, e.clientY), tg = el && el.closest && el.closest('[data-act="draw"], [data-act="comp"]');
@@ -900,6 +918,7 @@ document.addEventListener('pointermove', (e) => {
 document.addEventListener('pointerup', async () => {
   const d = S.drag; if (!d) return; S.drag = null;
   if (d.kind === 'divv' || d.kind === 'divh') { await saveDivider(d); return; }
+  if (d.kind === 'gmove' || d.kind === 'gsize') { document.body.classList.remove('gdrag', 'gsdrag'); if (d.ov) d.ov.remove(); if (d.plan && d.plan.ok) await saveGrid(d.ctx, d.plan.changes, d.kind === 'gmove' ? 'mover recuadro' : 'tamaño del recuadro'); return; }
   if (d.kind === 'swap') { d.gh.remove(); document.querySelectorAll('.droptarget').forEach(n => n.classList.remove('droptarget')); if (d.target) await swapPieces(d.ctx, d.key, d.target); return; }
   if (d.kind === 'resize') {
     d.ghost.remove();
@@ -948,7 +967,7 @@ async function undoStep() {
     else if (u.type === 'restore') await api.delPieza(u.cid, u.key);
     else if (u.type === 'newconj') { for (const p of [...S.C[u.cid].piezas]) await api.delPieza(u.cid, p.id); }
     else if (u.type === 'order') { await applyOrder(u.cid, u.before); }
-    else if (u.type === 'lay') { const notas = { ...(S.C[u.cid].conj.notas || {}), _lay: u.before }; await api.updConj(u.cid, { notas }); relayout(); }
+    else if (u.type === 'lay') { const k = u.key || '_lay', notas = { ...(S.C[u.cid].conj.notas || {}) }; if (u.before == null) delete notas[k]; else notas[k] = u.before; await api.updConj(u.cid, { notas }); relayout(); }
     S.hist.pop(); toast('Volviste un paso atrás: ' + u.label);
   } catch (er) { console.error(er); toast('No se pudo volver atrás ese paso. Revisá la conexión y probá de nuevo.', 6000); }
   S.undoing = false; updUndo();
@@ -1015,6 +1034,51 @@ async function saveDivider(d) {
     toast('Recuadros ajustados');
   } catch (er) { writeFail(er); }
   ctx.tmpLay = null; relayout();
+}
+/* ---- grilla: mover y agrandar recuadros encajando en módulos */
+function placements(ctx) { const out = {}; ctx.layout.sheets.forEach((cells, s) => cells.forEach(c => { if (c.p) out[c.p.id] = { s, ...c.g }; })); return out; }
+function sheetBoxes(ctx, s, skip) { return (ctx.layout.sheets[s] || []).filter(c => c.p && !skip.includes(c.p.id)).map(c => c.g); }
+function gridDrag(e) {
+  const d = S.drag, el = document.elementFromPoint(e.clientX, e.clientY), pageEl = el && el.closest && el.closest('.page');
+  const ok2 = pageEl && pageEl.dataset.conj === d.ctx.conj.id && (d.kind === 'gmove' || +pageEl.dataset.no === S.C[d.ctx.conj.id].firstPage + d.s0);
+  const pageNo = ok2 ? +pageEl.dataset.no : S.C[d.ctx.conj.id].firstPage + d.s0, tEl = $('p' + pageNo), svg = tEl && tEl.querySelector('svg'); if (!svg) return;
+  const s = pageNo - S.C[d.ctx.conj.id].firstPage, pt = svgPt(svg, e), a = d.cell, key = d.key;
+  let plan = { ok: false, rects: [] };
+  const col = (x) => Math.floor((x - PA.x + G / 2) / (MW + G)), row = (y) => Math.floor((y - PA.y + G / 2) / (MH + G));
+  if (d.kind === 'gsize') {
+    const cw = Math.min(GC - a.g.c, Math.max(a.min.cw, col(pt.x) - a.g.c + 1)), rh = Math.min(GR - a.g.r, Math.max(a.min.rh, row(pt.y) - a.g.r + 1));
+    const g = { c: a.g.c, r: a.g.r, cw, rh }, okk = freeAt(occ(sheetBoxes(d.ctx, s, [key])), g.c, g.r, cw, rh);
+    plan = { ok: okk && (cw !== a.g.cw || rh !== a.g.rh), bad: !okk, rects: [g], changes: { [key]: { s, ...g } }, msg: okk ? '' : 'Choca con otro recuadro' };
+  } else {
+    const other = (d.ctx.layout.sheets[s] || []).find(c => c.p && c.p.id !== key && pt.x >= c.x && pt.x <= c.x + c.w && pt.y >= c.y && pt.y <= c.y + c.h);
+    if (other) {
+      const okA = other.g.cw >= a.min.cw && other.g.rh >= a.min.rh, okB = a.g.cw >= other.min.cw && a.g.rh >= other.min.rh;
+      plan = { ok: okA && okB, bad: !(okA && okB), swap: true, rects: [other.g], rects2: s === d.s0 ? [a.g] : [], changes: { [key]: { s, ...other.g }, [other.p.id]: { s: d.s0, ...a.g } }, msg: okA && okB ? 'Intercambiar con ' + (other.p.nombre || '') : 'No entran intercambiadas' };
+    } else {
+      const g = { c: Math.min(GC - a.g.cw, Math.max(0, col(pt.x) - d.dc)), r: Math.min(GR - a.g.rh, Math.max(0, row(pt.y) - d.dr)), cw: a.g.cw, rh: a.g.rh };
+      const okk = freeAt(occ(sheetBoxes(d.ctx, s, [key])), g.c, g.r, g.cw, g.rh), same = s === d.s0 && g.c === a.g.c && g.r === a.g.r;
+      plan = { ok: okk && !same, bad: !okk, rects: [g], changes: { [key]: { s, ...g } }, msg: okk ? '' : 'Ahí no hay lugar' };
+    }
+  }
+  d.plan = plan;
+  if (d.ov && d.ov.ownerSVGElement !== svg) { d.ov.remove(); d.ov = null; }
+  if (!d.ov) { d.ov = document.createElementNS(NS, 'g'); d.ov.setAttribute('pointer-events', 'none'); svg.appendChild(d.ov); }
+  const mods = []; for (let r = 0; r < GR; r++) for (let c = 0; c < GC; c++) { const q = gridRect({ c, r, cw: 1, rh: 1 }); mods.push(`<rect x="${q.x.toFixed(2)}" y="${q.y.toFixed(2)}" width="${q.w.toFixed(2)}" height="${q.h.toFixed(2)}" rx="0.8"/>`); }
+  const colr = plan.bad ? RED : '#1f4fa3';
+  const box = (g, dash) => { const q = gridRect(g); return `<rect x="${q.x}" y="${q.y}" width="${q.w}" height="${q.h}" fill="${colr}" fill-opacity="${dash ? 0.05 : 0.12}" stroke="${colr}" stroke-width="0.7"${dash ? ' stroke-dasharray="2 1.2"' : ''}/>`; };
+  const lab = plan.rects[0] ? gridRect(plan.rects[0]) : null;
+  d.ov.innerHTML = `<g fill="#1f4fa3" fill-opacity="0.045" stroke="#1f4fa3" stroke-opacity="0.18" stroke-width="0.15">${mods.join('')}</g>` + plan.rects.map(g => box(g)).join('') + (plan.rects2 || []).map(g => box(g, true)).join('')
+    + (plan.msg && lab ? `<rect x="${lab.x + lab.w / 2 - 26}" y="${lab.y + lab.h / 2 - 4}" width="52" height="8" rx="2" fill="${colr}"/>${T(lab.x + lab.w / 2, lab.y + lab.h / 2 + 1.1, plan.msg, 2.7, { a: 'middle', c: '#fff', w: 700 })}` : '');
+}
+async function saveGrid(ctx, changes, label) {
+  const cid = ctx.conj.id, notas = { ...(ctx.conj.notas || {}) }, before = notas._grid ? JSON.parse(JSON.stringify(notas._grid)) : null;
+  const grid = { ...placements(ctx), ...changes }; notas._grid = grid;
+  try { await api.updConj(cid, { notas }); pushStep({ type: 'lay', key: '_grid', cid, before, label }); toast(label === 'mover recuadro' ? 'Recuadro movido' : 'Recuadro ajustado'); } catch (er) { writeFail(er); }
+}
+async function autoLay(cid) {
+  const ctx = S.C[cid], notas = { ...(ctx.conj.notas || {}) }, before = notas._grid ? JSON.parse(JSON.stringify(notas._grid)) : null; if (!before) return;
+  delete notas._grid;
+  try { await api.updConj(cid, { notas }); pushStep({ type: 'lay', key: '_grid', cid, before, label: 'acomodar automático' }); toast('Acomodado automáticamente'); } catch (er) { writeFail(er); }
 }
 function sortedPieces(ctx) { return [...ctx.piezas].sort((a, b) => ((a.orden ?? 99) - (b.orden ?? 99)) || String(a.id).localeCompare(String(b.id))); }
 async function applyOrder(cid, ids) {
@@ -1337,8 +1401,8 @@ function describe(kind, cid, a, d) {
   }
   if (kind === 'updConj') {
     const c = S.C[cid] && S.C[cid].conj, out = [];
-    if (d.notas) { const o = (c && c.notas) || {}, n = d.notas; const txt = (v) => JSON.stringify(Object.fromEntries(Object.entries(v || {}).filter(([k]) => k !== '_lay')));
-      if (txt(o) !== txt(n)) out.push('Editó las notas'); if (JSON.stringify(o._lay || {}) !== JSON.stringify(n._lay || {})) out.push('Cambió la distribución de la hoja'); }
+    if (d.notas) { const o = (c && c.notas) || {}, n = d.notas; const txt = (v) => JSON.stringify(Object.fromEntries(Object.entries(v || {}).filter(([k]) => k !== '_lay' && k !== '_grid')));
+      if (txt(o) !== txt(n)) out.push('Editó las notas'); if (JSON.stringify(o._lay || {}) !== JSON.stringify(n._lay || {}) || JSON.stringify(o._grid || {}) !== JSON.stringify(n._grid || {})) out.push(n._grid ? 'Reacomodó los recuadros de las piezas' : 'Volvió a acomodar automático'); }
     if (d.nombre !== undefined) out.push('Nombre: ' + d.nombre); if (d.codigo !== undefined) out.push('Código: ' + d.codigo); if (d.fecha !== undefined) out.push('Fecha: ' + d.fecha);
     return out.join(' · ');
   }

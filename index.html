@@ -491,10 +491,21 @@ function cambiosCell(ctx, c, keys, forPdf, sheetN) {
     `<line x1="${x}" y1="${ny}" x2="${x + w}" y2="${ny}" stroke="${INK}" stroke-width="0.25"/>`, T(x + 3, ny + 4.4, 'NOTAS', 2.4, { w: 700, ls: 0.3 })];
   const NS_ = 3.6, LH_ = 4.7, maxCh = Math.floor((w - 6) / (NS_ * 0.5)), lines = [];
   nota.split('\n').forEach(par => { let cur = ''; par.split(' ').forEach(wd => { if ((cur + ' ' + wd).trim().length > maxCh) { lines.push(cur); cur = wd; } else cur = (cur + ' ' + wd).trim(); }); lines.push(cur); });
-  const maxL = Math.max(1, Math.floor((NH - 6) / LH_));
+  const AP_H = 13, maxL = Math.max(1, Math.floor((NH - 6 - AP_H) / LH_));
   if (nota) lines.slice(0, maxL).forEach((ln, i) => nt.push(T(x + 3, ny + 9.6 + i * LH_, i === maxL - 1 && lines.length > maxL ? clip(ln + ' …', NS_, w - 6) : ln, NS_, { w: 600 })));
   if (!nota && !forPdf) nt.push(T(x + 3, ny + 9.4, 'Tocá acá para escribir notas o comentarios', 2.8, { c: '#9a9ea4' }));
   o.push(forPdf ? nt.join('') : `<g data-act="nota" data-sheet="${sheetN}">${nt.join('')}</g>`);
+  /* pieza aprobada: tilde + fecha (se completa sola al tildar, se puede editar) */
+  const ap = (((ctx.conj.notas || {})._ap) || {})[sheetN], ay2 = y + h - AP_H, GRN = '#1f7a46';
+  o.push(`<rect x="${x}" y="${ay2}" width="${w}" height="${AP_H}" fill="${ap ? '#eaf5ee' : '#fff'}"/><line x1="${x}" y1="${ay2}" x2="${x + w}" y2="${ay2}" stroke="${INK}" stroke-width="0.25"/>`);
+  const bx = x + 3.5, by = ay2 + 3.5, chk = `<rect x="${bx}" y="${by}" width="6" height="6" rx="1" fill="${ap ? GRN : '#fff'}" stroke="${ap ? GRN : '#777'}" stroke-width="0.4"/>`
+    + (ap ? `<path d="M${bx + 1.3} ${by + 3.1} l1.5 1.5 l2.9 -3.2" fill="none" stroke="#fff" stroke-width="0.8" stroke-linecap="round" stroke-linejoin="round"/>` : '')
+    + T(bx + 8.5, by + 4.6, 'PIEZA APROBADA', 3, { w: 700, c: ap ? GRN : '#777', ls: 0.2 });
+  o.push(forPdf ? (ap ? chk : chk) : `<g data-act="aprob" data-sheet="${sheetN}">${hit(x + 1, ay2 + 1, 50, AP_H - 2)}${chk}</g>`);
+  if (ap) {
+    const fx = x + w - 3, ftxt = T(fx, by + 2, 'FECHA', 1.7, { a: 'end', c: '#777', w: 600, ls: 0.3 }) + T(fx, by + 6.3, ap.fecha || '—', 3, { a: 'end', w: 700 });
+    o.push(forPdf ? ftxt : `<g data-act="aprobfecha" data-sheet="${sheetN}">${hit(x + w - 24, ay2 + 1, 23, AP_H - 2)}${ftxt}</g>`);
+  }
   o.push(`<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="none" stroke="${INK}" stroke-width="0.35" pointer-events="none"/>`);
   return o.join('');
 }
@@ -773,6 +784,17 @@ function editFecha(anchor, cid) {
     onSave: async ([fecha]) => { await api.updConj(cid, { fecha }); toast('Fecha actualizada'); } });
   el.querySelector('[data-hoy]').onclick = () => { el.querySelector('[data-i]').value = h; el.querySelector('[data-ok]').click(); };
 }
+async function toggleAprob(cid, n) {
+  const c = S.C[cid].conj, notas = { ...(c.notas || {}) }, ap = { ...(notas._ap || {}) };
+  if (ap[n]) delete ap[n]; else ap[n] = { fecha: hoy(), quien: myName() || '' };
+  notas._ap = ap;
+  try { await api.updConj(cid, { notas }); toast(ap[n] ? `Hoja ${n} aprobada · ${ap[n].fecha}` : 'Aprobación quitada'); } catch (e) { writeFail(e); }
+}
+function editAprobFecha(anchor, cid, n) {
+  const c = S.C[cid].conj, cur = (((c.notas || {})._ap || {})[n]) || {};
+  formPop(anchor, { title: `Fecha de aprobación · ${codeOf(c)} · hoja ${n}`, fields: [{ label: 'Fecha', value: cur.fecha || hoy(), ph: 'dd/mm/aaaa' }],
+    onSave: async ([f]) => { const notas = { ...(c.notas || {}) }; notas._ap = { ...(notas._ap || {}), [n]: { ...cur, fecha: f.trim() || hoy() } }; await api.updConj(cid, { notas }); toast('Fecha de aprobación guardada'); } });
+}
 function editNota(anchor, cid, n) {
   const c = S.C[cid].conj, cur = (c.notas || {})[n] || '';
   formPop(anchor, { title: `Notas · ${codeOf(c)} · hoja ${n}`, wide: true, fields: [{ label: 'Comentarios', value: cur, multi: true, ph: 'Ej.: verificar rebaba en agujeros Ø20' }],
@@ -822,6 +844,8 @@ $('doc').addEventListener('click', (ev) => {
   if (act === 'conj') return editConj(t, cid);
   if (act === 'fecha') return editFecha(t, cid);
   if (act === 'nota') return editNota(t, cid, +t.dataset.sheet);
+  if (act === 'aprob') return toggleAprob(cid, +t.dataset.sheet);
+  if (act === 'aprobfecha') return editAprobFecha(t, cid, +t.dataset.sheet);
   if (act === 'cambio') return openCambio(t, cid, t.dataset.id);
   if (act === 'upload') { closePop(); S.upload = { cid, key: t.dataset.key }; $('fileIn').value = ''; $('fileIn').click(); return; }
   if (act === 'addpiece') { closePop(); S.upload = { cid, key: null }; $('fileIn').value = ''; $('fileIn').click(); return; }
@@ -1440,8 +1464,9 @@ function describe(kind, cid, a, d) {
   }
   if (kind === 'updConj') {
     const c = S.C[cid] && S.C[cid].conj, out = [];
-    if (d.notas) { const o = (c && c.notas) || {}, n = d.notas; const txt = (v) => JSON.stringify(Object.fromEntries(Object.entries(v || {}).filter(([k]) => k !== '_lay' && k !== '_grid' && k !== '_free')));
-      if (txt(o) !== txt(n)) out.push('Editó las notas'); if (JSON.stringify(o._lay || {}) !== JSON.stringify(n._lay || {}) || JSON.stringify(o._grid || {}) !== JSON.stringify(n._grid || {}) || JSON.stringify(o._free || {}) !== JSON.stringify(n._free || {})) out.push(n._free || n._grid ? 'Reacomodó los recuadros de las piezas' : 'Volvió a acomodar automático'); }
+    if (d.notas) { const o = (c && c.notas) || {}, n = d.notas; const txt = (v) => JSON.stringify(Object.fromEntries(Object.entries(v || {}).filter(([k]) => k !== '_lay' && k !== '_grid' && k !== '_free' && k !== '_ap')));
+      if (txt(o) !== txt(n)) out.push('Editó las notas');
+      const oa = o._ap || {}, na = n._ap || {}; new Set([...Object.keys(oa), ...Object.keys(na)]).forEach(k => { if (!oa[k] && na[k]) out.push(`Hoja ${k}: pieza aprobada (${na[k].fecha})`); else if (oa[k] && !na[k]) out.push(`Hoja ${k}: quitó la aprobación`); else if (oa[k].fecha !== na[k].fecha) out.push(`Hoja ${k}: fecha de aprobación ${na[k].fecha}`); }); if (JSON.stringify(o._lay || {}) !== JSON.stringify(n._lay || {}) || JSON.stringify(o._grid || {}) !== JSON.stringify(n._grid || {}) || JSON.stringify(o._free || {}) !== JSON.stringify(n._free || {})) out.push(n._free || n._grid ? 'Reacomodó los recuadros de las piezas' : 'Volvió a acomodar automático'); }
     if (d.nombre !== undefined) out.push('Nombre: ' + d.nombre); if (d.codigo !== undefined) out.push('Código: ' + d.codigo); if (d.fecha !== undefined) out.push('Fecha: ' + d.fecha);
     return out.join(' · ');
   }
